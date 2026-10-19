@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Arabic PDF Pro</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#123a3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Arabic PDF Pro">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ============ الشاشة الرئيسية ============ -->
+<section id="home" class="screen">
+  <div class="home-head">
+    <div class="logo">
+      <svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg>
+    </div>
+    <h1 dir="ltr">Arabic PDF Pro</h1>
+    <p>عدّل ملفات PDF بالعربي — نصوص، توقيعات، أختام، صور، ورسم</p>
+  </div>
+  <div class="home-actions">
+    <button class="big-btn primary" id="btnOpen"><span class="ic" data-ic="folder"></span><b>فتح ملف PDF</b><small>من الملفات أو iCloud أو Drive</small></button>
+    <button class="big-btn" id="btnScan"><span class="ic" data-ic="scan"></span><b>Scan · مسح</b><small>صوّر ورق واعمله PDF</small></button>
+    <button class="big-btn" id="btnImgs"><span class="ic" data-ic="image"></span><b>صور إلى PDF</b><small>حوّل صورة أو أكثر لملف</small></button>
+    <button class="big-btn" id="btnBlank"><span class="ic" data-ic="filePlus"></span><b>مستند فارغ</b><small>صفحة A4 جديدة</small></button>
+    <button class="big-btn" id="btnLib"><span class="ic" data-ic="stamp"></span><b>التواقيع والأختام</b><small>المحفوظة عندك</small></button>
+  </div>
+  <div class="home-foot" dir="ltr"><b>Arabic PDF Pro</b> · Version 0.20<br>Created by <b>MOHENDI</b><br><button class="contact-btn" id="btnContact">✉ تواصل مع المطور — اقتراح أو مشكلة</button></div>
+</section>
+
+<!-- ============ شاشة التحرير ============ -->
+<section id="editor" class="screen hidden">
+  <header class="topbar">
+    <button class="tb" id="tbBack" title="رجوع"><span class="ic" data-ic="back"></span></button>
+    <div class="title" id="docTitle">مستند</div>
+    <button class="tb" id="tbUndo" title="تراجع"><span class="ic" data-ic="undo"></span></button>
+    <button class="tb" id="tbRedo" title="إعادة"><span class="ic" data-ic="redo"></span></button>
+    <button class="tb" id="tbSearch" title="بحث"><span class="ic" data-ic="search"></span></button>
+    <button class="tb" id="tbPages" title="الصفحات"><span class="ic" data-ic="grid"></span></button>
+    <button class="tb" id="tbSave" title="حفظ"><span class="ic" data-ic="save"></span></button>
+    <button class="tb" id="tbMore" title="المزيد"><span class="ic" data-ic="more"></span></button>
+  </header>
+
+  <div id="searchbar" class="hidden">
+    <input id="searchInput" type="search" placeholder="ابحث في المستند…" dir="auto">
+    <span id="searchCount"></span>
+    <button class="tb sm" id="searchPrev"><span class="ic" data-ic="up"></span></button>
+    <button class="tb sm" id="searchNext"><span class="ic" data-ic="down"></span></button>
+    <button class="tb sm" id="searchClose"><span class="ic" data-ic="close"></span></button>
+  </div>
+
+  <div id="selbar" class="hidden"></div>
+
+  <div id="viewer"><div id="pages"></div></div>
+  <div id="pageBadge"></div>
+  <div id="zoomBtns">
+    <button id="zoomIn"><span class="ic" data-ic="plus"></span></button>
+    <button id="zoomOut"><span class="ic" data-ic="minus"></span></button>
+  </div>
+
+  <div id="toolopts" class="hidden"></div>
+  <nav id="toolbar"></nav>
+</section>
+
+<!-- ============ منظم الصفحات ============ -->
+<section id="organizer" class="screen hidden">
+  <header class="topbar">
+    <button class="tb" id="orgDone" title="تم"><span class="ic" data-ic="back"></span></button>
+    <div class="title">تنظيم الصفحات</div>
+    <button class="tb txt" id="orgAll">تحديد الكل</button>
+  </header>
+  <div class="org-hint">اضغط مطولاً على أي صفحة واسحبها لمكانها الجديد — ولو محدد أكتر من صفحة هيتسحبوا مع بعض</div>
+  <div id="orgGrid"></div>
+  <nav id="orgBar"></nav>
+</section>
+
+<!-- ============ السكان ============ -->
+<section id="scanner" class="screen hidden">
+  <header class="topbar">
+    <button class="tb" id="scClose" title="رجوع"><span class="ic" data-ic="back"></span></button>
+    <div class="title" id="scTitle">Scan · مسح</div>
+  </header>
+  <div id="scStage"></div>
+  <nav id="scBar"></nav>
+</section>
+
+<div id="backdrop" class="hidden"></div>
+<div id="sheet" class="hidden"><div class="grab"></div><div id="sheetBody"></div></div>
+<div id="toast"></div>
+<div id="busy" class="hidden"><div class="spinner"></div><div id="busyText">جاري التحميل…</div></div>
+
+<input type="file" id="fPdf" accept="application/pdf,.pdf" hidden>
+<input type="file" id="fPdfInsert" accept="application/pdf,.pdf" hidden>
+<input type="file" id="fImg" accept="image/*" hidden>
+<input type="file" id="fCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fImgs" accept="image/*" multiple hidden>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script src="app.js"></script>
+<script src="scan.js"></script>
+<script>if('serviceWorker' in navigator) addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
+</body>
+</html>
