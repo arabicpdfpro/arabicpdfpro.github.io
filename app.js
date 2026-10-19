@@ -209,7 +209,20 @@ S.pz = 1;
 /* ================= العناصر (الشروح) ================= */
 const mctx = document.createElement('canvas').getContext('2d');
 function fontStr(o, size) { return `${o.bold ? 700 : 400} ${size}px "${o.font}", "Cairo"`; }
-function lineH(o) { return o.size * (/Nastaliq/.test(o.font) ? 2.3 : /Sub TNR|Amiri|Lateef|Naskh|Scheherazade|Markazi|Mirza|Aref|Gulzar|Alkalami|Harmattan/.test(o.font) ? 1.8 : 1.55); }
+function lineH(o) { return o.size * (/Nastaliq/.test(o.font) ? 2.0 : /Sub TNR|Amiri|Lateef|Naskh|Scheherazade|Markazi|Mirza|Aref|Gulzar|Alkalami|Harmattan/.test(o.font) ? 1.55 : 1.35); }
+// ارتفاع الحروف الفعلي للخط (من غير المسافات الفاضية اللي فوق وتحت الخط) — عشان الصندوق يبقى على قد الكلام
+const INK = {};
+function inkOf(o) {
+  const key = o.font + '|' + (o.bold ? 1 : 0);
+  if (INK[key]) return INK[key];
+  mctx.font = fontStr({ font: o.font, bold: o.bold }, 100);
+  const m = mctx.measureText('Hdgjlpyأإلجيبك');
+  let v;
+  if (m.actualBoundingBoxAscent == null) v = { a: 0.95, d: 0.35, fa: 1.1, fd: 0.4 };
+  else v = { a: Math.max(0.7, m.actualBoundingBoxAscent / 100), d: Math.max(0.2, m.actualBoundingBoxDescent / 100), fa: (m.fontBoundingBoxAscent || 110) / 100, fd: (m.fontBoundingBoxDescent || 40) / 100 };
+  try { if (document.fonts.check(mctx.font)) INK[key] = v; } catch (e) { INK[key] = v; }
+  return v;
+}
 // لو الكلام بقى أكبر من الصندوق، كبّر الصندوق بدل ما يتقص الكلام
 function fitBox(o) {
   if (o.type !== 'text' || !o.text || !o.text.trim()) return;
@@ -219,15 +232,22 @@ function fitBox(o) {
     if (o.align === 'left') { } else if (o.align === 'center') o.x -= grow / 2; else o.x -= grow;
     o.bw = m.nw;
   }
-  if (o.bh != null && m.nh > o.bh + 0.01) { o.y -= (m.nh - o.bh) / 2; o.bh = m.nh; }
+  // الارتفاع يزيد بس لو فيه سطور زيادة — عشان المربع ما يغطيش السطر اللي فوق واللي تحت
+  if (o.bh != null && m.lines.length > 1 && m.nh > o.bh + 0.01) { o.y -= (m.nh - o.bh) / 2; o.bh = m.nh; }
 }
 function textMetrics(o) {
+  const ink = inkOf(o);
   mctx.font = fontStr(o, o.size);
   const lines = (o.text || ' ').split('\n');
-  const pad = o.bg ? o.size * 0.35 : o.size * 0.15;
-  const w = Math.max(...lines.map(l => mctx.measureText(l || ' ').width)) + pad * 2;
-  const nw = Math.max(w, o.size * 0.5), nh = lines.length * lineH(o) + pad * 2;
-  return { lines, pad, nw, nh, w: o.bw != null ? Math.max(o.bw, 1) : nw, h: o.bh != null ? Math.max(o.bh, 1) : nh };
+  const padX = o.bg ? o.size * 0.15 : o.size * 0.08, padY = o.size * 0.04;
+  let asc = ink.a * o.size, des = ink.d * o.size, w = 0;
+  lines.forEach(l => {
+    const mm = mctx.measureText(l || ' '); w = Math.max(w, mm.width);
+    if (l.trim() && mm.actualBoundingBoxAscent != null) { asc = Math.max(asc, mm.actualBoundingBoxAscent); des = Math.max(des, mm.actualBoundingBoxDescent); }
+  });
+  const lh = lineH(o);
+  const nw = Math.max(w + padX * 2, o.size * 0.5), nh = asc + des + (lines.length - 1) * lh + padY * 2;
+  return { lines, pad: padX, padX, padY, asc, des, lh, ink, nw, nh, w: o.bw != null ? Math.max(o.bw, 1) : nw, h: o.bh != null ? Math.max(o.bh, 1) : nh };
 }
 function bbox(o) {
   switch (o.type) {
@@ -246,15 +266,16 @@ function bbox(o) {
   }
 }
 
-function drawObj(ctx, o) {
+function drawObj(ctx, o, noText) {
   ctx.save();
   ctx.globalAlpha = o.opacity == null ? 1 : o.opacity;
   if (o.type === 'text') {
-    const m = textMetrics(o), lh = lineH(o);
+    const m = textMetrics(o), lh = m.lh;
     if (o.bg) { ctx.fillStyle = o.bg; ctx.fillRect(o.x, o.y, m.w, m.h); }
+    if (noText) { ctx.restore(); return; }
     ctx.beginPath(); ctx.rect(o.x, o.y, m.w, m.h); ctx.clip();
     const oy = (m.h - m.nh) / 2;   // توسيط النص رأسياً داخل الصندوق
-    ctx.fillStyle = o.color; ctx.font = fontStr(o, o.size); ctx.textBaseline = 'middle';
+    ctx.fillStyle = o.color; ctx.font = fontStr(o, o.size); ctx.textBaseline = 'alphabetic';
     m.lines.forEach((l, i) => {
       const rtl = isRTL(l) || (!/[A-Za-z0-9]/.test(l));
       ctx.direction = rtl ? 'rtl' : 'ltr';
@@ -263,7 +284,7 @@ function drawObj(ctx, o) {
       if (al === 'center') { ctx.textAlign = 'center'; x = o.x + m.w / 2; }
       else if (al === 'left') { ctx.textAlign = rtl ? 'end' : 'start'; x = o.x + m.pad; }
       else { ctx.textAlign = rtl ? 'start' : 'end'; x = o.x + m.w - m.pad; }
-      ctx.fillText(l, x, o.y + oy + m.pad + lh * i + lh / 2);
+      ctx.fillText(l, x, o.y + oy + m.padY + m.asc + lh * i);
     });
   } else if (o.type === 'ink') {
     ctx.strokeStyle = o.color; ctx.lineWidth = o.width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -295,13 +316,13 @@ function drawObj(ctx, o) {
   ctx.restore();
 }
 
-function objCanvas(o, k) {
+function objCanvas(o, k, noText) {
   const b = bbox(o);
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(b.w * k)); c.height = Math.max(1, Math.ceil(b.h * k));
   const ctx = c.getContext('2d');
   ctx.scale(c.width / b.w, c.height / b.h); ctx.translate(-b.x, -b.y);
-  drawObj(ctx, o);
+  drawObj(ctx, o, noText);
   return c;
 }
 
@@ -322,8 +343,8 @@ function makeObjEl(p, o) {
   Object.assign(el.style, { left: b.x * s + 'px', top: b.y * s + 'px', width: b.w * s + 'px', height: b.h * s + 'px' });
   if (o.type === 'image') {
     const im = document.createElement('img'); im.src = S.assets[o.asset]; im.style.opacity = o.opacity == null ? 1 : o.opacity; el.appendChild(im);
-  } else el.appendChild(objCanvas(o, s * DPR()));
-  if (S.editingId === o.id) el.style.visibility = 'hidden';
+  } else el.appendChild(objCanvas(o, s * DPR(), S.editingId === o.id));
+  if (S.editingId === o.id) { el.style.pointerEvents = 'none'; el.classList.add('editing'); }
   const isSel = S.sel && S.sel.oid === o.id;
   if (isSel) {
     el.classList.add('sel');
@@ -364,6 +385,7 @@ function updateSelbar() {
   btns.push(['plus', 'تكرار', duplicateSel]);
   btns.push(['front', 'للأمام', () => reorderSel(1)]);
   if (o.type === 'image') btns.push(['stamp', 'حفظ', () => { Lib.add('sig', S.assets[o.asset]); toast('تم الحفظ في المكتبة'); }]);
+  if (S.pages.length > 1 && o.type !== 'text') btns.push(['copy', 'كل الصفحات', copyToAllPages]);
   btns.push(['trash', 'حذف', deleteSel, 'danger']);
   bar.innerHTML = '';
   btns.forEach(([ic, t, fn, cls]) => { const b = document.createElement('button'); b.innerHTML = icon(ic) + t; if (cls) b.className = cls; b.onclick = fn; bar.appendChild(b); });
@@ -839,9 +861,9 @@ function copyText(t) {
 }
 function editPdfLine(p, line, R) {
   pushUndo();
-  const size = Math.max(4, Math.round(line.h * 0.92 * 2) / 2);
+  const size = Math.max(4, Math.round(line.h * 2) / 2);   // نفس حجم الخط الأصلي (مايصغرش بعد التعديل)
   const mf = mapPdfFont(line.font);
-  const o = { type: 'text', id: uid(), x: R.x, y: R.y, text: line.text, font: mf.font || 'Sub TNR', size, color: '#000000', bg: '#ffffff', align: line.rtl ? 'right' : 'left', bold: mf.bold, opacity: 1 };
+  const o = { type: 'text', id: uid(), x: R.x, y: R.y, text: line.text, font: mf.font || 'Sub TNR', size, color: '#000000', bg: '#ffffff', align: line.rtl ? 'right' : 'left', bold: mf.bold, opacity: 1, fromPdf: true };
   if (line.font && !mf.font) toast(`خط الملف الأصلي "${line.font}" مش موجود عندنا — استخدمت Times New Roman`, 4000);
   const nat = textMetrics(o);
   o.bw = Math.max(R.w, nat.nw); o.bh = R.h;
@@ -880,16 +902,27 @@ function openTextSheet(obj, p, x, y) {
   ta.setAttribute('autocomplete', 'off'); ta.value = o.text || '';
   p.el.querySelector('.overlay').appendChild(ta);
   const anchor = isNew ? { x: o.x, align: o.align } : null;
-  if (isNew) o.y = Math.max(0, o.y - lineH(o) / 2 - o.size * 0.15);
+  if (isNew) { const m0 = textMetrics({ ...o, text: 'x' }); o.y = Math.max(0, o.y - m0.nh / 2); }
   else { S.editingId = o.id; renderOverlay(p); }
+  // إطار المعاينة على قد الكلام بالظبط (نفس الصندوق اللي هيتحفظ)
+  const box = document.createElement('div'); box.className = 'inline-box';
+  p.el.querySelector('.overlay').appendChild(box);
   const posTA = () => {
     const s = scale(), tmp = { ...o, text: ta.value || ' ' }; if (isNew) { delete tmp.bw; delete tmp.bh; }
-    const m = textMetrics(tmp), w = (isNew ? Math.max(m.nw, o.size * 2.5) : bbox({ ...o, text: ta.value || ' ' }).w) + o.size * 0.6, h = isNew ? m.nh : Math.max(m.nh, o.bh || 0);
+    const m = textMetrics(tmp);
+    const bw = isNew ? Math.max(m.nw, o.size * 0.8) : m.w, bh = m.h;
     let x = o.x;
-    if (isNew) { x = anchor.align === 'left' ? anchor.x : anchor.align === 'center' ? anchor.x - w / 2 : anchor.x - w; x = clamp(x, 0, Math.max(0, p.w - w)); o.x = x; }
-    Object.assign(ta.style, { left: x * s + 'px', top: o.y * s + 'px', width: (w * s + 4) + 'px', height: (h * s + 4) + 'px', fontSize: o.size * s + 'px', lineHeight: lineH(o) * s + 'px',
-      padding: (m.pad * s) + 'px', fontFamily: `"${o.font}", "Cairo"`, fontWeight: o.bold ? 700 : 400, color: o.color, textAlign: o.align,
-      background: o.bg || 'rgba(30,136,229,.06)', opacity: o.opacity == null ? 1 : o.opacity });
+    if (isNew) { x = anchor.align === 'left' ? anchor.x : anchor.align === 'center' ? anchor.x - bw / 2 : anchor.x - bw; x = clamp(x, 0, Math.max(0, p.w - bw)); o.x = x; }
+    Object.assign(box.style, { left: x * s + 'px', top: o.y * s + 'px', width: bw * s + 'px', height: bh * s + 'px', background: isNew ? (o.bg || 'rgba(30,136,229,.05)') : 'transparent' });
+    // نحط سطر الكتابة بحيث خط الكتابة (baseline) ييجي في نفس مكانه في الصندوق
+    const L = m.lh, base0 = o.y + (bh - m.nh) / 2 + m.padY + m.asc;
+    const fa = m.ink.fa * o.size, fd = m.ink.fd * o.size, off = (L - fa - fd) / 2 + fa;
+    const extra = o.size * 0.3, n = m.lines.length;
+    Object.assign(ta.style, { left: (x - (o.align === 'left' ? 0 : o.align === 'center' ? extra / 2 : extra)) * s + 'px', top: (base0 - off) * s + 'px', width: (bw + extra) * s + 'px', height: (n * L) * s + 'px',
+      fontSize: o.size * s + 'px', lineHeight: L * s + 'px',
+      padding: `0 ${m.padX * s}px`,
+      fontFamily: `"${o.font}", "Cairo"`, fontWeight: o.bold ? 700 : 400, color: o.color, textAlign: o.align,
+      background: 'transparent', opacity: o.opacity == null ? 1 : o.opacity });
   };
   // ضغطة بره = تم
   const outside = e => { if (e.target === ta || e.target.closest('#sheet') || e.target.closest('#txPanel')) return; e.stopPropagation(); e.preventDefault(); const pn = $('#txPanel'); if (pn) pn.remove(); closeSheet(); };
@@ -953,14 +986,15 @@ function openTextSheet(obj, p, x, y) {
   function commit() {
     if (done) return; done = true;
     document.removeEventListener('pointerdown', outside, true);
-    ta.remove(); S.editingId = null;
+    ta.remove(); box.remove(); S.editingId = null;
     let txt = ta.value.replace(/\s+$/, '');
     if (!txt && ta.value.length) {   // مسافات فقط = مربع فاضي للإخفاء
       if (isNew) { const n = ta.value.replace(/\n/g, '').length; txt = ' '.repeat(Math.max(7, n)); o.text = txt; const m0 = textMetrics(o); o.bw = Math.max(120, m0.nw); o.bh = Math.max(30, Math.min(m0.nh, 40)); }
       else txt = ta.value.replace(/\n+$/, '') || ' ';
       if (!o.bg) o.bg = '#ffffff';
     }   // مسافات فقط = مربع فاضي للإخفاء
-    Object.assign(S.text, { font: o.font, size: o.size, color: o.color, bg: o.bg, align: o.align, bold: o.bold, opacity: o.opacity });
+    // الخلفية البيضا بتاعة تعديل سطر من الملف ماتتنقلش للكتابة الجديدة
+    Object.assign(S.text, { font: o.font, size: o.size, color: o.color, align: o.align, bold: o.bold, opacity: o.opacity }, o.fromPdf || /^ +$/.test(txt) ? {} : { bg: o.bg });
     if (isNew) {
       if (!txt) return;
       o.text = txt;
@@ -1100,7 +1134,7 @@ async function importTransparent(type) {
   const paint = () => { out = thr >= 255 ? (() => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); return c; })() : removeWhite(img, thr); const pv = $('#ipv', body); pv.innerHTML = ''; if (out) pv.appendChild(out); };
   $('#ithr', body).value = thr; $('#ithr', body).oninput = e => { thr = +e.target.value; paint(); };
   paint();
-  const go = save => { if (!out) return; const src = out.toDataURL('image/png'); if (save) Lib.add(type, src); closeSheet(); addImageObj(src, { kind: type, w: type === 'stamp' ? 130 : 150 }); };
+  const go = save => { if (!out) return; const src = out.toDataURL('image/png'); if (save) Lib.add(type, src); closeSheet(); (type === 'stamp' ? placeStampDialog : addImageObj)(src, { kind: type, w: type === 'stamp' ? 130 : 150 }); };
   $('#iSave', body).onclick = () => go(true); $('#iIns', body).onclick = () => go(false);
 }
 
@@ -1131,8 +1165,9 @@ function applyHFDialog(src, k) {
   const body = openSheet(`
     <div class="sh-head"><h3>إضافة ${nm}</h3></div>
     <div class="hf-prev"><div class="hf-page" id="hfPg"><img id="hfIm" src="${src}"></div></div>
-    <div class="row"><span class="k">الحجم</span><input type="range" id="hfSz" min="30" max="100" step="1" value="100" style="flex:1"><span id="hfSzV" style="min-width:40px">100%</span></div>
-    <div class="row"><span class="k">${k === 'header' ? 'المسافة من فوق' : 'المسافة من تحت'}</span><input type="range" id="hfOf" min="0" max="80" step="1" value="0" style="flex:1"><span id="hfOfV" style="min-width:40px">0</span></div>
+    <div class="row"><span class="k">الحجم</span><input type="range" id="hfSz" min="15" max="100" step="1" value="100" style="flex:1"><span id="hfSzV" style="min-width:40px">100%</span></div>
+    <div class="row"><span class="k">${k === 'header' ? 'ينزل لتحت' : 'يطلع لفوق'}</span><input type="range" id="hfOf" min="0" max="50" step="0.5" value="0" style="flex:1"><span id="hfOfV" style="min-width:40px">0%</span></div>
+    <div class="row"><span class="k">يمين/شمال</span><input type="range" id="hfX" dir="ltr" min="-100" max="100" step="1" value="0" style="flex:1"><span id="hfXV" style="min-width:40px">نص</span></div>
     <div class="menu-list" style="margin-top:6px">
       <label class="hfopt"><input type="radio" name="hfw" value="all" checked> كل الصفحات (${S.pages.length})</label>
       <label class="hfopt"><input type="radio" name="hfw" value="cur"> الصفحة دي بس</label>
@@ -1141,17 +1176,20 @@ function applyHFDialog(src, k) {
     </div>
     <div class="row"><button class="btn pri" id="hfGo" style="flex:1">إضافة</button></div>`);
   const cur0 = S.hfPage || visiblePage();
+  pageThumb(cur0, $('#hfPg', body));
+  let ar = 0.15; loadImg(src).then(im => { ar = im.height / im.width; pv(); });
   const pv = () => {
-    const sz = +$('#hfSz', body).value, of = +$('#hfOf', body).value, pg = $('#hfPg', body), im = $('#hfIm', body);
-    const pw = 150, ph = pw * cur0.h / cur0.w, sc = pw / cur0.w; pg.style.width = pw + 'px'; pg.style.height = ph + 'px';
-    im.style.width = (sz) + '%'; im.style.left = ((100 - sz) / 2) + '%';
-    if (k === 'header') { im.style.top = of * sc + 'px'; im.style.bottom = ''; } else { im.style.bottom = of * sc + 'px'; im.style.top = ''; }
-    $('#hfSzV', body).textContent = sz + '%'; $('#hfOfV', body).textContent = of;
+    const sz = +$('#hfSz', body).value, of = +$('#hfOf', body).value, hx = +$('#hfX', body).value, pg = $('#hfPg', body), im = $('#hfIm', body);
+    const pw = 170, ph = pw * cur0.h / cur0.w; pg.style.width = pw + 'px'; pg.style.height = ph + 'px';
+    const W = pw * sz / 100, H = W * ar, x = (pw - W) / 2 * (1 + hx / 100), y = k === 'header' ? ph * of / 100 : ph - H - ph * of / 100;
+    Object.assign(im.style, { width: W + 'px', left: x + 'px', top: y + 'px', bottom: '' });
+    $('#hfSzV', body).textContent = sz + '%'; $('#hfOfV', body).textContent = of + '%';
+    $('#hfXV', body).textContent = hx === 0 ? 'نص' : hx < 0 ? 'شمال' : 'يمين';
   };
-  $('#hfSz', body).oninput = pv; $('#hfOf', body).oninput = pv; pv();
+  ['#hfSz', '#hfOf', '#hfX'].forEach(id => $(id, body).oninput = pv); pv();
   $('#hfGo', body).onclick = async () => {
     const w = $('input[name=hfw]:checked', body).value, cover = $('#hfCover', body).checked;
-    const sz = +$('#hfSz', body).value / 100, of = +$('#hfOf', body).value;
+    const sz = +$('#hfSz', body).value / 100, of = +$('#hfOf', body).value / 100, hx = +$('#hfX', body).value / 100;
     closeSheet(true);
     const cur = S.hfPage || visiblePage(); S.hfPage = null;
     const pages = w === 'all' ? S.pages : w === 'rest' ? S.pages.slice(cur.index) : [cur];
@@ -1159,8 +1197,13 @@ function applyHFDialog(src, k) {
     pushUndo();
     let last = null;
     pages.forEach(p => {
-      const W = p.w * sz, H = W * img.height / img.width, x = (p.w - W) / 2, y = k === 'header' ? of : p.h - H - of;
-      if (cover) { const cy = k === 'header' ? 0 : y, ch = k === 'header' ? y + H : p.h - y; annotsOf(p.id).unshift({ type: 'shape', kind: 'rect', id: uid(), x: 0, y: cy, w: p.w, h: ch, color: null, width: 0, fill: '#ffffff' }); }
+      const W = p.w * sz, H = W * img.height / img.width, x = (p.w - W) / 2 * (1 + hx), oy = p.h * of, y = k === 'header' ? oy : p.h - H - oy;
+      if (cover) {
+        // في مكانه الطبيعي: يغطي من حافة الصفحة لحد آخره. لو اتحرك: يغطي تحته بس
+        const atEdge = of < 0.02 && Math.abs(hx) < 0.01;
+        const r = atEdge ? { x: 0, y: k === 'header' ? 0 : y, w: p.w, h: k === 'header' ? y + H : p.h - y } : { x, y, w: W, h: H };
+        annotsOf(p.id).unshift({ type: 'shape', kind: 'rect', id: uid(), ...r, color: null, width: 0, fill: '#ffffff' });
+      }
       last = { type: 'image', id: uid(), asset: aid, x, y, w: W, h: H, opacity: 1, kind: k };
       annotsOf(p.id).push(last);
       renderOverlay(p);
@@ -1171,6 +1214,79 @@ function applyHFDialog(src, k) {
     v.scrollTop = k === 'header' ? Math.max(0, first.el.offsetTop - 10) : Math.max(0, first.el.offsetTop + first.h * sc - v.clientHeight + 20);
     toast(`تمت إضافة ${nm} على ${pages.length} صفحة`);
   };
+}
+// صورة مصغرة للصفحة الحالية كخلفية للمعاينة
+function pageThumb(p, el) {
+  try {
+    const cv = p.el && p.el.querySelector('canvas.pdfc'); if (!cv || !cv.width) return;
+    const t = document.createElement('canvas'), k = 340 / cv.width; t.width = 340; t.height = Math.round(cv.height * k);
+    t.getContext('2d').drawImage(cv, 0, 0, t.width, t.height);
+    Object.assign(el.style, { backgroundImage: `url(${t.toDataURL('image/jpeg', 0.7)})`, backgroundSize: '100% 100%' });
+  } catch (e) { }
+}
+/* ---------- مكان الختم: الحجم + يمين/شمال + فوق/تحت + كل الصفحات ---------- */
+const STP = { w: 0.22, hx: 0.12, vy: 0.85, where: 'cur' };
+async function placeStampDialog(src, opts = {}) {
+  if (!S.pdf || curScreen() !== 'editor' || S.insertAt) return addImageObj(src, opts);
+  const kind = opts.kind || 'stamp';
+  const img = await loadImg(src), ar = img.height / img.width;
+  const cur0 = visiblePage();
+  const body = openSheet(`
+    <div class="sh-head"><h3>${kind === 'sig' ? 'مكان التوقيع' : 'مكان الختم'}</h3></div>
+    <div class="hf-prev"><div class="hf-page" id="spPg"><img id="spIm" src="${src}"></div></div>
+    <div class="row"><span class="k">الحجم</span><input type="range" id="spSz" min="5" max="70" step="0.5" style="flex:1"><span id="spSzV" style="min-width:40px"></span></div>
+    <div class="row"><span class="k">يمين/شمال</span><input type="range" id="spX" dir="ltr" min="0" max="100" step="0.5" style="flex:1"></div>
+    <div class="row"><span class="k">فوق/تحت</span><input type="range" id="spY" dir="ltr" min="0" max="100" step="0.5" style="flex:1"></div>
+    <div class="menu-list" style="margin-top:6px">
+      <label class="hfopt"><input type="radio" name="spw" value="cur"> الصفحة دي بس</label>
+      <label class="hfopt"><input type="radio" name="spw" value="all"> كل الصفحات (${S.pages.length})</label>
+      <label class="hfopt"><input type="radio" name="spw" value="rest"> من الصفحة دي لآخر الملف</label>
+    </div>
+    <div class="row"><button class="btn pri" id="spGo" style="flex:1">إضافة</button></div>`);
+  pageThumb(cur0, $('#spPg', body));
+  $('#spSz', body).value = STP.w * 100; $('#spX', body).value = STP.hx * 100; $('#spY', body).value = STP.vy * 100;
+  const r = $(`input[name=spw][value=${STP.where}]`, body); if (r) r.checked = true;
+  const geo = p => {
+    const W = p.w * +$('#spSz', body).value / 100, H = W * ar;
+    return { W, H, x: (p.w - W) * +$('#spX', body).value / 100, y: Math.max(0, p.h - H) * +$('#spY', body).value / 100 };
+  };
+  const pv = () => {
+    const pw = 170, ph = pw * cur0.h / cur0.w, pg = $('#spPg', body), im = $('#spIm', body);
+    pg.style.width = pw + 'px'; pg.style.height = ph + 'px';
+    const g = geo(cur0), k = pw / cur0.w;
+    Object.assign(im.style, { width: g.W * k + 'px', left: g.x * k + 'px', top: g.y * k + 'px' });
+    $('#spSzV', body).textContent = Math.round(+$('#spSz', body).value) + '%';
+  };
+  ['#spSz', '#spX', '#spY'].forEach(id => $(id, body).oninput = pv); pv();
+  $('#spGo', body).onclick = () => {
+    const where = $('input[name=spw]:checked', body).value;
+    Object.assign(STP, { w: +$('#spSz', body).value / 100, hx: +$('#spX', body).value / 100, vy: +$('#spY', body).value / 100, where });
+    closeSheet(true);
+    const pages = where === 'all' ? S.pages : where === 'rest' ? S.pages.slice(cur0.index) : [cur0];
+    const aid = uid(); S.assets[aid] = src;
+    pushUndo();
+    let sel = null;
+    pages.forEach(p => {
+      const g = geo(p), o = { type: 'image', id: uid(), asset: aid, x: g.x, y: g.y, w: g.W, h: g.H, opacity: 1, kind };
+      annotsOf(p.id).push(o); renderOverlay(p);
+      if (p === cur0) sel = o;
+    });
+    setTool('select');
+    if (sel) select(cur0.id, sel.id);
+    if (pages.length > 1) toast(`اتحط على ${pages.length} صفحة`);
+  };
+}
+// كرر العنصر المحدد بنفس مكانه على كل الصفحات
+function copyToAllPages() {
+  const o = selObj(); if (!o) return; const p0 = selPage();
+  pushUndo(); let n = 0;
+  S.pages.forEach(p => {
+    if (p === p0) return;
+    const c = JSON.parse(JSON.stringify(o)); c.id = uid();
+    if (c.x != null && p.w !== p0.w) { c.x *= p.w / p0.w; c.y *= p.h / p0.h; }
+    annotsOf(p.id).push(c); renderOverlay(p); n++;
+  });
+  toast(n ? `اتكرر على ${n} صفحة تانية بنفس المكان` : 'الملف صفحة واحدة بس');
 }
 // قص الهيدر/الفوتر من الصفحة الحالية بدقة عالية
 async function hfFromPage(k) {
@@ -1345,8 +1461,8 @@ function openStampSheet(manage) {
     <div class="sec-title">أختامك المحفوظة</div>
     <div id="stList"></div>
     <div class="row"><button class="btn pri" id="stNew" style="flex:1">${icon('stamp')} تصميم ختم</button><button class="btn" id="stImg">${icon('image')} ختم من صورة</button></div>`);
-  presets.forEach(([t, c]) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = t; b.style.color = c; b.style.borderColor = c; b.onclick = () => { const cv = drawStamp({ shape: 'rect', lines: [t], color: c, date: true }); closeSheet(); if (!manage) addImageObj(cv.toDataURL('image/png'), { kind: 'stamp', w: 130 }); }; $('#stPre', body).appendChild(b); });
-  const fill = () => { const l = $('#stList', body); l.innerHTML = ''; l.appendChild(libGrid('stamp', src => { closeSheet(); if (!manage) addImageObj(src, { kind: 'stamp', w: 120 }); }, fill)); };
+  presets.forEach(([t, c]) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = t; b.style.color = c; b.style.borderColor = c; b.onclick = () => { const cv = drawStamp({ shape: 'rect', lines: [t], color: c, date: true }); closeSheet(); if (!manage) placeStampDialog(cv.toDataURL('image/png'), { kind: 'stamp', w: 130 }); }; $('#stPre', body).appendChild(b); });
+  const fill = () => { const l = $('#stList', body); l.innerHTML = ''; l.appendChild(libGrid('stamp', src => { closeSheet(); if (!manage) placeStampDialog(src, { kind: 'stamp', w: 120 }); }, fill)); };
   fill();
   $('#stNew', body).onclick = () => openStampBuilder(manage);
   $('#stImg', body).onclick = () => importTransparent('stamp');
@@ -1372,7 +1488,7 @@ function openStampBuilder(manage) {
   $$('#sbShape button', body).forEach(b => b.onclick = () => { cfg.shape = b.dataset.s; paint(); });
   $('#sbDate', body).onchange = e => { cfg.date = e.target.checked; paint(); };
   paint();
-  $('#sbSave', body).onclick = () => { const src = drawStamp(cfg).toDataURL('image/png'); Lib.add('stamp', src); closeSheet(); if (!manage) addImageObj(src, { kind: 'stamp', w: cfg.shape === 'circle' ? 110 : 140 }); else toast('تم حفظ الختم'); };
+  $('#sbSave', body).onclick = () => { const src = drawStamp(cfg).toDataURL('image/png'); Lib.add('stamp', src); closeSheet(); if (!manage) placeStampDialog(src, { kind: 'stamp', w: cfg.shape === 'circle' ? 110 : 140 }); else toast('تم حفظ الختم'); };
 }
 
 /* ---------------- التاريخ ---------------- */
@@ -1526,7 +1642,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.20</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.21</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }

@@ -309,7 +309,9 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 .hf-page{position:relative;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.2);overflow:hidden}
 .hf-page img{position:absolute;display:block}
 
-.inline-ta{position:absolute;z-index:4;border:1.5px dashed var(--sel);border-radius:3px;outline:none;resize:none;overflow:hidden;white-space:pre;margin:0;box-sizing:border-box;
+.inline-box{position:absolute;z-index:3;border:1.2px dashed var(--sel);box-sizing:border-box;pointer-events:none;border-radius:2px}
+.obj.editing .handle,.obj.editing{outline:none!important;box-shadow:none!important}.obj.editing .handle{display:none}
+.inline-ta{position:absolute;z-index:4;border:0;border-radius:0;outline:none;resize:none;overflow:hidden;white-space:pre;margin:0;box-sizing:border-box;
   -webkit-user-select:text;user-select:text;touch-action:auto;caret-color:var(--sel)}
 
 .contact-btn{margin-top:10px;border:1.5px solid var(--bar2);color:var(--bar2);border-radius:20px;padding:7px 16px;font-size:13.5px;background:#fff;direction:rtl}
