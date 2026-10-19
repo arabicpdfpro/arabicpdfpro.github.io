@@ -232,6 +232,13 @@ function fitBox(o) {
     if (o.align === 'left') { } else if (o.align === 'center') o.x -= grow / 2; else o.x -= grow;
     o.bw = m.nw;
   }
+  if (o.base != null && o.bh != null) {
+    // تعديل سطر من الملف: خط الكتابة ثابت مكانه، والصندوق يكبر بس لو الحروف الجديدة أطول من القديمة
+    const b = o.y + o.base, top = b - m.asc - m.padY, bot = b + (m.lines.length - 1) * m.lh + m.des + m.padY;
+    if (top < o.y - 0.01) { const d = o.y - top; o.y = top; o.base += d; o.bh += d; }
+    if (bot > o.y + o.bh + 0.01) o.bh = bot - o.y;
+    return;
+  }
   // الارتفاع يزيد بس لو فيه سطور زيادة — عشان المربع ما يغطيش السطر اللي فوق واللي تحت
   if (o.bh != null && m.lines.length > 1 && m.nh > o.bh + 0.01) { o.y -= (m.nh - o.bh) / 2; o.bh = m.nh; }
 }
@@ -239,12 +246,16 @@ function textMetrics(o) {
   const ink = inkOf(o);
   mctx.font = fontStr(o, o.size);
   const lines = (o.text || ' ').split('\n');
-  const padX = o.bg ? o.size * 0.15 : o.size * 0.08, padY = o.size * 0.04;
-  let asc = ink.a * o.size, des = ink.d * o.size, w = 0;
+  const padX = o.size * 0.06, padY = Math.max(0.5, o.size * 0.03);
+  // الصندوق على قد حبر الحروف المكتوبة فعلاً (مش أطول حرف في الخط)
+  let asc = 0, des = 0, w = 0, real = false;
   lines.forEach(l => {
     const mm = mctx.measureText(l || ' '); w = Math.max(w, mm.width);
-    if (l.trim() && mm.actualBoundingBoxAscent != null) { asc = Math.max(asc, mm.actualBoundingBoxAscent); des = Math.max(des, mm.actualBoundingBoxDescent); }
+    if (l.trim() && mm.actualBoundingBoxAscent != null) { real = true; asc = Math.max(asc, mm.actualBoundingBoxAscent); des = Math.max(des, mm.actualBoundingBoxDescent); }
   });
+  if (!real) { asc = ink.a * o.size * 0.75; des = ink.d * o.size * 0.4; }
+  asc = Math.max(asc, o.size * 0.45); des = Math.max(des, 0);
+  if (o.underline) des = Math.max(des, o.size * 0.17);
   const lh = lineH(o);
   const nw = Math.max(w + padX * 2, o.size * 0.5), nh = asc + des + (lines.length - 1) * lh + padY * 2;
   return { lines, pad: padX, padX, padY, asc, des, lh, ink, nw, nh, w: o.bw != null ? Math.max(o.bw, 1) : nw, h: o.bh != null ? Math.max(o.bh, 1) : nh };
@@ -284,7 +295,13 @@ function drawObj(ctx, o, noText) {
       if (al === 'center') { ctx.textAlign = 'center'; x = o.x + m.w / 2; }
       else if (al === 'left') { ctx.textAlign = rtl ? 'end' : 'start'; x = o.x + m.pad; }
       else { ctx.textAlign = rtl ? 'start' : 'end'; x = o.x + m.w - m.pad; }
-      ctx.fillText(l, x, o.y + oy + m.padY + m.asc + lh * i);
+      const by = o.base != null ? o.y + o.base + lh * i : o.y + oy + m.padY + m.asc + lh * i;
+      ctx.fillText(l, x, by);
+      if (o.underline && l.trim()) {
+        const tw = ctx.measureText(l).width, th = Math.max(0.6, o.size * 0.06);
+        const x0 = ctx.textAlign === 'center' ? x - tw / 2 : (ctx.textAlign === 'left' || (ctx.textAlign === 'start' && !rtl) || (ctx.textAlign === 'end' && rtl)) ? x : x - tw;
+        ctx.fillRect(x0, by + o.size * 0.09, tw, th);
+      }
     });
   } else if (o.type === 'ink') {
     ctx.strokeStyle = o.color; ctx.lineWidth = o.width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -463,7 +480,7 @@ function bindResize(p, o, el, h) {
       if (Math.abs(nw - W0) < 1 && Math.abs(nh - H0) < 1) return;
       pushUndo();
       const f = nw / W0, right = b.x + b.w;
-      if (o.type === 'text') { const f2 = clamp(o.size * f, 1, 400) / o.size; o.size *= f2; if (o.bw != null) o.bw *= f2; if (o.bh != null) o.bh *= f2; const nb = bbox(o); o.x = right - nb.w; o.y = b.y; }
+      if (o.type === 'text') { const f2 = clamp(o.size * f, 1, 400) / o.size; o.size *= f2; if (o.bw != null) o.bw *= f2; if (o.bh != null) o.bh *= f2; if (o.base != null) o.base *= f2; const nb = bbox(o); o.x = right - nb.w; o.y = b.y; }
       else if (o.type === 'image') { o.w = nw / s; o.h = nh / s; o.x = right - o.w; }
       else if (o.type === 'ink') { o.pts = o.pts.map(([x, y]) => [right - (right - x) * f, b.y + (y - b.y) * f]); o.width *= f; }
       else if (o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow')) { o.w *= f; o.h *= nh / H0; }
@@ -500,7 +517,7 @@ function bindEdge(p, o, el, h, ax) {
       const right = b.x + b.w;
       if (prop) {
         const f = clamp(o.size * nw / W0, 1, 400) / o.size;
-        o.size *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f;
+        o.size *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f;
         const nb = bbox(o); o.x = right - nb.w; o.y = b.y;
       } else if (o.type === 'text') {
         if (o.bh == null) o.bh = b.h; if (o.bw == null) o.bw = b.w;
@@ -865,12 +882,25 @@ function editPdfLine(p, line, R) {
   const mf = mapPdfFont(line.font);
   const o = { type: 'text', id: uid(), x: R.x, y: R.y, text: line.text, font: mf.font || 'Sub TNR', size, color: '#000000', bg: '#ffffff', align: line.rtl ? 'right' : 'left', bold: mf.bold, opacity: 1, fromPdf: true };
   if (line.font && !mf.font) toast(`خط الملف الأصلي "${line.font}" مش موجود عندنا — استخدمت Times New Roman`, 4000);
-  const nat = textMetrics(o);
-  o.bw = Math.max(R.w, nat.nw); o.bh = R.h;
-  if (line.rtl) o.x = R.x + R.w - o.bw;
+  // المربع الأبيض على قد حبر الكلام القديم بالظبط (عشان مايقطعش خطوط الجدول اللي فوق وتحت)
+  const base = line.y2 - line.h * 0.25;
+  const setInk = () => {
+    mctx.font = fontStr(o, o.size);
+    const mm = mctx.measureText(line.text || 'x');
+    let a = mm.actualBoundingBoxAscent, d = mm.actualBoundingBoxDescent;
+    if (a == null) { a = o.size * 0.75; d = o.size * 0.2; }
+    a = Math.max(a, o.size * 0.45); d = Math.max(d, 0);
+    const pd = Math.max(0.6, o.size * 0.04);
+    o.y = base - a - pd; o.bh = a + d + pd * 2; o.base = base - o.y;
+    fitBox(o);
+  };
+  const xr = R.x + R.w;
+  o.x = R.x + 0.8; o.bw = Math.max(R.w - 1.6, textMetrics(o).nw);
+  if (line.rtl) o.x = xr - 0.8 - o.bw;
+  setInk();
   annotsOf(p.id).push(o);
   S.sel = { pid: p.id, oid: o.id }; renderOverlay(p); updateSelbar();
-  fontReady(o.font).then(() => { fitBox(o); renderOverlay(p); });
+  fontReady(o.font).then(() => { setInk(); renderOverlay(p); const t = $('#tTxt'); if (t) t.dispatchEvent(new Event('input')); });
   openTextSheet(o, p);
 }
 
@@ -892,6 +922,7 @@ function openTextSheet(obj, p, x, y) {
       <button class="tx-font" id="tFontBtn"><span id="tFontName" dir="auto"></span><span class="car">▾</span></button>
       <div class="tx-size"><button id="tMinus">−</button><span id="tSize"></span><button id="tPlus">+</button></div>
       <button class="tx-b" id="tBold">B</button>
+      <button class="tx-b" id="tUnder" style="text-decoration:underline">U</button>
       <button class="tx-b" id="tAlign"></button>
       <button class="tx-col" id="tColBtn"><span class="d1"></span><span class="d2"></span></button>
       <button class="tx-done" id="tDone">تم</button>
@@ -915,7 +946,7 @@ function openTextSheet(obj, p, x, y) {
     if (isNew) { x = anchor.align === 'left' ? anchor.x : anchor.align === 'center' ? anchor.x - bw / 2 : anchor.x - bw; x = clamp(x, 0, Math.max(0, p.w - bw)); o.x = x; }
     Object.assign(box.style, { left: x * s + 'px', top: o.y * s + 'px', width: bw * s + 'px', height: bh * s + 'px', background: isNew ? (o.bg || 'rgba(30,136,229,.05)') : 'transparent' });
     // نحط سطر الكتابة بحيث خط الكتابة (baseline) ييجي في نفس مكانه في الصندوق
-    const L = m.lh, base0 = o.y + (bh - m.nh) / 2 + m.padY + m.asc;
+    const L = m.lh, base0 = o.base != null ? o.y + o.base : o.y + (bh - m.nh) / 2 + m.padY + m.asc;
     const fa = m.ink.fa * o.size, fd = m.ink.fd * o.size, off = (L - fa - fd) / 2 + fa;
     const extra = o.size * 0.3, n = m.lines.length;
     Object.assign(ta.style, { left: (x - (o.align === 'left' ? 0 : o.align === 'center' ? extra / 2 : extra)) * s + 'px', top: (base0 - off) * s + 'px', width: (bw + extra) * s + 'px', height: (n * L) * s + 'px',
@@ -932,6 +963,8 @@ function openTextSheet(obj, p, x, y) {
   const refresh = () => {
     $('#tSize', body).textContent = +o.size.toFixed(1);
     $('#tBold', body).classList.toggle('on', !!o.bold);
+    $('#tUnder', body).classList.toggle('on', !!o.underline);
+    ta.style.textDecoration = o.underline ? 'underline' : 'none';
     $('#tAlign', body).innerHTML = icon(alignIc[o.align] || 'alignR');
     const fn = $('#tFontName', body); fn.textContent = fontInfo().n; fn.style.fontFamily = `"${o.font}", "Cairo"`;
     $('#tColBtn .d1', body).style.background = o.color;
@@ -975,11 +1008,12 @@ function openTextSheet(obj, p, x, y) {
     $('#cpO', pn).oninput = e => { ensureUndo(); o.opacity = +e.target.value; $('#cpOV', pn).textContent = Math.round(o.opacity * 100) + '%'; live(); };
     paint();
   };
-  const stepSize = d => { ensureUndo(); const st = o.size < 12 ? 0.5 : 1; const ns = clamp(Math.round((o.size + d * st) / st) * st, 1, 400); const f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; o.size = ns; live(); };
+  const stepSize = d => { ensureUndo(); const st = o.size < 12 ? 0.5 : 1; const ns = clamp(Math.round((o.size + d * st) / st) * st, 1, 400); const f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); };
   $('#tMinus', body).onclick = () => stepSize(-1);
   $('#tPlus', body).onclick = () => stepSize(1);
-  $('#tSize', body).onclick = () => { const v = prompt('حجم الخط', Math.round(o.size)); if (v && +v > 0) { ensureUndo(); const ns = clamp(+v, 1, 400), f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; o.size = ns; live(); } };
+  $('#tSize', body).onclick = () => { const v = prompt('حجم الخط', Math.round(o.size)); if (v && +v > 0) { ensureUndo(); const ns = clamp(+v, 1, 400), f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); } };
   $('#tBold', body).onclick = () => { ensureUndo(); o.bold = !o.bold; live(); };
+  $('#tUnder', body).onclick = () => { ensureUndo(); o.underline = !o.underline; live(); };
   $('#tAlign', body).onclick = () => { ensureUndo(); o.align = { right: 'center', center: 'left', left: 'right' }[o.align] || 'right'; live(); };
   ta.oninput = () => { if (!isNew) { ensureUndo(); o.text = ta.value; live(); } else posTA(); };
   let done = false;
@@ -994,7 +1028,7 @@ function openTextSheet(obj, p, x, y) {
       if (!o.bg) o.bg = '#ffffff';
     }   // مسافات فقط = مربع فاضي للإخفاء
     // الخلفية البيضا بتاعة تعديل سطر من الملف ماتتنقلش للكتابة الجديدة
-    Object.assign(S.text, { font: o.font, size: o.size, color: o.color, align: o.align, bold: o.bold, opacity: o.opacity }, o.fromPdf || /^ +$/.test(txt) ? {} : { bg: o.bg });
+    Object.assign(S.text, { font: o.font, size: o.size, color: o.color, align: o.align, bold: o.bold, underline: !!o.underline, opacity: o.opacity }, o.fromPdf || /^ +$/.test(txt) ? {} : { bg: o.bg });
     if (isNew) {
       if (!txt) return;
       o.text = txt;
@@ -1503,7 +1537,8 @@ function openDateSheet() {
 
 /* ================= التصدير (بناء ملف PDF النهائي) ================= */
 async function rasterPng(o) {
-  const b = bbox(o), k = clamp(4, 1, 3000 / Math.max(b.w, b.h));
+  // النص بيتحفظ بدقة عالية جداً (حوالي 860 نقطة/بوصة) عشان يبقى واضح زي الأصل لما تكبّر
+  const b = bbox(o), k = o.type === 'text' ? clamp(12, 1, 9000 / Math.max(b.w, b.h)) : clamp(4, 1, 3000 / Math.max(b.w, b.h));
   const c = objCanvas(o, k);
   const blob = await new Promise(r => c.toBlob(r, 'image/png'));
   return new Uint8Array(await blob.arrayBuffer());
@@ -1642,7 +1677,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.21</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.22</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
