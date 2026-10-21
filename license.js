@@ -8,7 +8,7 @@
     messagingSenderId: "733975544831",
     appId: "1:733975544831:web:4c1500e67bd489f1611dca"
   };
-  const TRIAL_DAYS = 10, OFFLINE_DAYS = 7, DAY = 86400000;
+  const TRIAL_DAYS = 10, OFFLINE_DAYS = 7, DAY = 86400000, ADMIN = 'arabicpdfpro@gmail.com';
   const PLAT = /Electron/i.test(navigator.userAgent) ? 'win' : (window.Android && window.Android.version) ? 'mobile' : 'web';
   const PLAT_FIELD = { web: 'devWeb', win: 'devWin', mobile: 'devMobile' }[PLAT];
   const PLAT_NAME = { web: 'متصفح', win: 'كمبيوتر', mobile: 'موبايل' }[PLAT];
@@ -48,6 +48,7 @@
   function compute(u) {
     const now = Date.now();
     if (u.status === 'blocked') return { state: 'blocked' };
+    if (u.vip || u.email === ADMIN) return { state: 'active', until: Infinity };
     let until = ms(u.activeUntil);
     if (!until && u.activatedAt) until = (u.activeDays || 0) >= 36500 ? Infinity : ms(u.activatedAt) + (u.activeDays || 0) * DAY;
     if (until && until > now) return { state: 'active', until };
@@ -167,8 +168,14 @@
     try {
       const uref = db.collection('users').doc(u.uid);
       let snap = await withTimeout(uref.get({ source: 'server' }));
-      if (!snap.exists) { await withTimeout(uref.set({ email: u.email, createdAt: TS(), status: 'trial' })); snap = await uref.get({ source: 'server' }); }
+      if (!snap.exists) {
+        // إيميل في قايمة المفتوحين؟ يتفتح مدى الحياة على طول
+        let vip = false; try { vip = (await withTimeout(db.collection('vip').doc(u.email.toLowerCase()).get())).exists; } catch (e) { }
+        await withTimeout(uref.set(vip ? { email: u.email, createdAt: TS(), status: 'active', vip: true } : { email: u.email, createdAt: TS(), status: 'trial' }));
+        snap = await uref.get({ source: 'server' });
+      }
       let data = snap.data();
+      if (u.email === ADMIN) { cacheSave(u, data); return apply(u, data); }   // حساب المطور: من غير حد أجهزة
       if (data.status === 'blocked') { cacheSave(u, data); return stopView('⛔', 'الحساب ده موقوف', 'تواصل مع المطور لو فيه مشكلة'); }
       // الجهاز ده مربوط بحساب تاني؟
       const dsnap = await withTimeout(db.collection('devices').doc(dev).get());
@@ -219,9 +226,10 @@
     const r = LIC.info;
     if (r.state === 'trial') bar.innerHTML = `<span>🎁 فترة تجريبية — باقي <b>${r.daysLeft}</b> ${r.daysLeft === 1 ? 'يوم' : r.daysLeft <= 10 ? 'أيام' : 'يوم'}</span><span class="sp"></span><button id="licAct">فعّل</button>`;
     else if (r.state === 'expired') bar.innerHTML = `<span>⏰ <b>التجربة خلصت</b><br>الملفات بتتحفظ بعلامة مائية</span><span class="sp"></span><button id="licAct">فعّل</button>`;
-    else bar.innerHTML = `<span>✅ <b>البرنامج مفعّل</b>${r.until !== Infinity ? ' لحد ' + new Date(r.until).toLocaleDateString('ar-EG') : ''}</span>`;
+    else bar.innerHTML = `<span>✅ <b>البرنامج مفعّل</b>${r.until !== Infinity ? ' لحد ' + new Date(r.until).toLocaleDateString('ar-EG') : ''}</span>${LIC.user.email === ADMIN ? '<span class="sp"></span><button id="licAdmin">لوحة التحكم</button>' : ''}`;
     bar.className = r.state;
     const a = document.getElementById('licAct'); if (a) a.onclick = activateSheet;
+    const ad = document.getElementById('licAdmin'); if (ad) ad.onclick = () => { location.href = 'admin.html'; };
     const foot = document.querySelector('.home-foot'); let acc = document.querySelector('.lic-acc');
     if (!acc) { acc = document.createElement('div'); acc.className = 'lic-acc'; foot.appendChild(acc); }
     acc.innerHTML = `${LIC.user.email}<button id="licOut">خروج</button>`;

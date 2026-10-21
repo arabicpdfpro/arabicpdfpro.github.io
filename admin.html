@@ -63,11 +63,20 @@
     <div class="msg" id="lmsg"></div>
   </div>
   <div id="app" class="hidden">
-    <div class="tabs"><button data-t="users" class="on">👥 المستخدمين</button><button data-t="codes">🔑 أكواد التفعيل</button></div>
+    <div class="tabs"><button data-t="users" class="on">👥 المستخدمين</button><button data-t="vip">⭐ المفتوحين</button><button data-t="codes">🔑 الأكواد</button></div>
     <section id="users">
       <div class="stats" id="stats"></div>
       <input class="search" id="q" placeholder="🔍 دوّر بالإيميل…" dir="auto">
       <div id="ulist"></div>
+    </section>
+    <section id="vip" class="hidden">
+      <div class="gen">
+        <label>الإيميل</label><input id="vE" type="email" dir="ltr" placeholder="name@example.com" style="flex:1;min-width:180px">
+        <label>ملاحظة</label><input id="vN" placeholder="مثلاً: موظف / صاحبي" style="flex:1;min-width:120px">
+        <button class="btn pri" id="vGo">⭐ افتحه مدى الحياة</button>
+      </div>
+      <div style="font-size:13px;color:var(--mut);margin:-4px 2px 10px">أي إيميل هنا بيتفتح مدى الحياة أول ما يسجل (أو على طول لو مسجل قبل كده). برضه 3 أجهزة بس.</div>
+      <div id="vlist"></div>
     </section>
     <section id="codes" class="hidden">
       <div class="gen">
@@ -96,6 +105,7 @@ const fmt = t => t ? new Date(t).toLocaleDateString('ar-EG', { year: 'numeric', 
 function compute(u) {
   const now = Date.now();
   if (u.status === 'blocked') return { state: 'blocked', label: 'موقوف' };
+  if (u.vip || u.email === ADMIN) return { state: 'active', label: u.email === ADMIN ? 'حساب المطور' : '⭐ مفتوح مدى الحياة' };
   let until = ms(u.activeUntil);
   if (!until && u.activatedAt) until = (u.activeDays || 0) >= 36500 ? Infinity : ms(u.activatedAt) + (u.activeDays || 0) * DAY;
   if (until && until > now) return { state: 'active', label: until === Infinity ? 'مفعّل مدى الحياة' : 'مفعّل لحد ' + fmt(until) };
@@ -116,11 +126,11 @@ auth.onAuthStateChanged(u => {
   const ok = u && u.email === ADMIN && u.emailVerified;
   $('#login').classList.toggle('hidden', !!ok); $('#app').classList.toggle('hidden', !ok); $('#out').classList.toggle('hidden', !u);
   if (u && !ok) $('#lmsg').textContent = u.email !== ADMIN ? 'الحساب ده مش حساب المطور' : 'أكّد الإيميل الأول (افتح رسالة التأكيد في جيميل)';
-  if (ok) { loadUsers(); loadCodes(); }
+  if (ok) { loadUsers(); loadCodes(); loadVip(); }
 });
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  $('#users').classList.toggle('hidden', b.dataset.t !== 'users'); $('#codes').classList.toggle('hidden', b.dataset.t !== 'codes');
+  ['users', 'vip', 'codes'].forEach(t => $('#' + t).classList.toggle('hidden', b.dataset.t !== t));
 });
 
 /* ---------- المستخدمين ---------- */
@@ -188,6 +198,34 @@ async function userAction(id, a) {
     loadUsers();
   } catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
 }
+
+/* ---------- المفتوحين ---------- */
+async function loadVip() {
+  try {
+    const s = await db.collection('vip').get();
+    const L = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
+    if (!L.length) { $('#vlist').innerHTML = '<div class="empty">مفيش إيميلات مفتوحة لسه</div>'; return; }
+    $('#vlist').innerHTML = `<table><tr><th>الإيميل</th><th>ملاحظة</th><th>سجّل؟</th><th></th></tr>${L.map(v => {
+      const u = USERS.find(x => (x.email || '').toLowerCase() === v.id);
+      return `<tr><td dir="ltr" style="text-align:left">${v.id}</td><td>${v.note || ''}</td><td>${u ? '✅' : 'لسه'}</td><td><button class="btn" data-v="${v.id}" style="color:var(--bad)">شيل</button></td></tr>`;
+    }).join('')}</table>`;
+    document.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
+      const em = b.dataset.v; if (!confirm('شيل ' + em + ' من المفتوحين؟\nلو مسجل، هيرجع لحالة التجربة/التفعيل العادية.')) return;
+      const bt = db.batch(); bt.delete(db.collection('vip').doc(em));
+      const us = await db.collection('users').where('email', '==', em).get(); us.forEach(d => bt.update(d.ref, { vip: false, status: d.data().status === 'blocked' ? 'blocked' : (d.data().activatedAt || d.data().activeUntil ? 'active' : 'trial') }));
+      await bt.commit(); toast('اتشال'); loadUsers(); loadVip();
+    });
+  } catch (e) { $('#vlist').innerHTML = `<div class="empty">مشكلة: ${e.code || e.message}</div>`; }
+}
+$('#vGo').onclick = async () => {
+  const em = $('#vE').value.trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast('اكتب إيميل صحيح');
+  try {
+    const bt = db.batch(); bt.set(db.collection('vip').doc(em), { note: $('#vN').value.trim(), createdAt: FV.serverTimestamp() });
+    const us = await db.collection('users').where('email', '==', em).get(); us.forEach(d => bt.update(d.ref, { vip: true, status: 'active' }));
+    await bt.commit(); $('#vE').value = ''; $('#vN').value = '';
+    toast(us.size ? '⭐ اتفتح على طول (كان مسجل)' : '⭐ اتضاف — هيتفتح أول ما يسجل'); loadUsers(); loadVip();
+  } catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
+};
 
 /* ---------- الأكواد ---------- */
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
