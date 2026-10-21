@@ -1573,8 +1573,31 @@ async function buildFinal(bytes = S.bytes, annots = S.annots, pageIds = S.pageId
       page.drawImage(img, { x: pl.x, y: pl.y, width: b.w, height: b.h, rotate: degrees(pl.rot), opacity: o.type === 'image' ? (o.opacity == null ? 1 : o.opacity) : 1 });
     }
   }
+  if (window.LIC && LIC.needsWatermark()) await addWatermark(doc);
   doc.setProducer('Arabic PDF Pro — by MOHENDI'); doc.setModificationDate(new Date());
   return await doc.save();
+}
+// علامة مائية للنسخة التجريبية بعد انتهاء الـ10 أيام
+async function addWatermark(doc) {
+  await fontReady('Cairo').catch(() => { });
+  const c = document.createElement('canvas'); c.width = 1800; c.height = 260;
+  const x = c.getContext('2d'); x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#7a1f1f';
+  x.font = '700 120px "Cairo", sans-serif'; x.direction = 'ltr'; x.fillText('Arabic PDF Pro', 900, 85);
+  x.font = '700 80px "Cairo", sans-serif'; x.direction = 'rtl'; x.fillText('نسخة تجريبية — Trial Version', 900, 200);
+  const big = await doc.embedPng(await new Promise(r => c.toBlob(b => b.arrayBuffer().then(a => r(new Uint8Array(a))), 'image/png')));
+  const s = document.createElement('canvas'); s.width = 1400; s.height = 70;
+  const y = s.getContext('2d'); y.textAlign = 'center'; y.textBaseline = 'middle'; y.fillStyle = '#555'; y.font = '600 40px "Cairo", sans-serif'; y.direction = 'rtl';
+  y.fillText('اتعمل بنسخة تجريبية من Arabic PDF Pro — arabicpdfpro.github.io', 700, 36);
+  const small = await doc.embedPng(await new Promise(r => s.toBlob(b => b.arrayBuffer().then(a => r(new Uint8Array(a))), 'image/png')));
+  for (const page of doc.getPages()) {
+    const { width: W, height: H } = page.getSize();
+    const w = Math.min(W, H) * 0.95, h = w * 260 / 1800, ang = Math.atan2(H, W);
+    const cx = W / 2, cy = H / 2, dx = -w / 2, dy = -h / 2;
+    const px = cx + dx * Math.cos(ang) - dy * Math.sin(ang), py = cy + dx * Math.sin(ang) + dy * Math.cos(ang);
+    page.drawImage(big, { x: px, y: py, width: w, height: h, rotate: degrees(ang * 180 / Math.PI), opacity: 0.16 });
+    const sw = Math.min(W * 0.7, 380), sh = sw * 70 / 1400;
+    page.drawImage(small, { x: (W - sw) / 2, y: 6, width: sw, height: sh, opacity: 0.75 });
+  }
 }
 function addNoteAnnot(doc, page, vp, o) {
   try {
@@ -1677,7 +1700,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.22</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.23</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }

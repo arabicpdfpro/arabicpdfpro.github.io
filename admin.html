@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>لوحة Arabic PDF Pro</title>
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{--bg:#f2f6f6;--card:#fff;--ink:#1d2b2b;--mut:#647777;--bar:#123a3a;--acc:#e88c28;--ok:#1e8449;--bad:#c0392b;--warn:#b9770e;--line:#dfe7e7}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Cairo,Tajawal,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px}
+  header{background:var(--bar);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+  header h1{font-size:18px;margin:0;flex:1}
+  header button{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:10px;padding:7px 12px;font:inherit}
+  main{max-width:900px;margin:0 auto;padding:14px 16px 60px}
+  .tabs{display:flex;gap:6px;margin-bottom:12px}
+  .tabs button{flex:1;border:0;background:#e3ebeb;border-radius:12px;padding:10px;font:inherit;font-weight:700;color:var(--mut)}
+  .tabs button.on{background:var(--bar);color:#fff}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+  .stat{background:var(--card);border-radius:12px;padding:10px;text-align:center}
+  .stat b{display:block;font-size:22px}
+  .stat span{font-size:12px;color:var(--mut)}
+  input,select{font:inherit;border:1.5px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;color:var(--ink)}
+  .search{width:100%;margin-bottom:10px}
+  .u{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .u .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .u .em{font-weight:800;direction:ltr;flex:1;min-width:180px;text-align:left;word-break:break-all}
+  .pill{font-size:12.5px;border-radius:20px;padding:3px 10px;font-weight:700;white-space:nowrap}
+  .pill.trial{background:#fff4e5;color:var(--warn)} .pill.expired{background:#fdecea;color:var(--bad)} .pill.active{background:#e8f6ee;color:var(--ok)} .pill.blocked{background:#333;color:#fff}
+  .meta{font-size:13px;color:var(--mut);margin-top:6px;line-height:1.8}
+  .devs span{display:inline-block;margin-left:10px}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .acts button,.btn{border:0;border-radius:10px;padding:7px 11px;font:inherit;font-size:13.5px;font-weight:700;background:#e3ebeb;color:var(--bar)}
+  .acts button.pri,.btn.pri{background:var(--acc);color:#fff}
+  .acts button.bad{background:#fdecea;color:var(--bad)}
+  .gen{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .gen label{font-size:13px;color:var(--mut)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:14px;overflow:hidden;font-size:13.5px}
+  th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:right}
+  th{background:#e9f0f0;color:var(--mut);font-weight:700}
+  td.code{direction:ltr;text-align:left;font-family:ui-monospace,Consolas,monospace;font-weight:700;letter-spacing:.5px}
+  .login{max-width:360px;margin:60px auto;background:var(--card);border-radius:18px;padding:22px}
+  .login input{width:100%;margin-top:8px;direction:ltr;text-align:left}
+  .login .btn{width:100%;margin-top:14px;padding:12px}
+  .msg{color:var(--bad);font-size:13.5px;margin-top:10px;min-height:18px;text-align:center}
+  .empty{text-align:center;color:var(--mut);padding:30px}
+  .hidden{display:none!important}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;transition:.25s;pointer-events:none;z-index:20}
+  #toast.on{opacity:1}
+  @media (max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header><h1>🛠 لوحة Arabic PDF Pro</h1><button id="out" class="hidden">خروج</button></header>
+<main>
+  <div id="login" class="login hidden">
+    <h3 style="margin:0 0 6px">دخول المطور</h3>
+    <div style="font-size:13px;color:var(--mut)">بحساب arabicpdfpro@gmail.com (نفس كلمة السر اللي عملتها في البرنامج)</div>
+    <input id="em" type="email" value="arabicpdfpro@gmail.com">
+    <input id="pw" type="password" placeholder="كلمة السر">
+    <button class="btn pri" id="go">دخول</button>
+    <div class="msg" id="lmsg"></div>
+  </div>
+  <div id="app" class="hidden">
+    <div class="tabs"><button data-t="users" class="on">👥 المستخدمين</button><button data-t="codes">🔑 أكواد التفعيل</button></div>
+    <section id="users">
+      <div class="stats" id="stats"></div>
+      <input class="search" id="q" placeholder="🔍 دوّر بالإيميل…" dir="auto">
+      <div id="ulist"></div>
+    </section>
+    <section id="codes" class="hidden">
+      <div class="gen">
+        <label>عدد</label><input id="gN" type="number" value="5" min="1" max="100" style="width:70px">
+        <label>المدة</label>
+        <select id="gD"><option value="30">شهر</option><option value="90">3 شهور</option><option value="180">6 شهور</option><option value="365" selected>سنة</option><option value="36500">مدى الحياة</option></select>
+        <label>لإيميل معيّن (اختياري)</label><input id="gE" type="email" dir="ltr" placeholder="أي حد" style="flex:1;min-width:160px">
+        <button class="btn pri" id="gGo">ولّد أكواد</button>
+      </div>
+      <div id="clist"></div>
+    </section>
+  </div>
+</main>
+<div id="toast"></div>
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-auth-compat.js"></script>
+<script src="lib/firebase-firestore-compat.js"></script>
+<script>
+const ADMIN = 'arabicpdfpro@gmail.com', DAY = 86400000, TRIAL_DAYS = 10;
+firebase.initializeApp({ apiKey: "AIzaSyC5PLz8XIzVceMMTVkHNc5WIWEBtvYOCOA", authDomain: "arabic-pdf-pro.firebaseapp.com", projectId: "arabic-pdf-pro", storageBucket: "arabic-pdf-pro.firebasestorage.app", messagingSenderId: "733975544831", appId: "1:733975544831:web:4c1500e67bd489f1611dca" });
+const auth = firebase.auth(), db = firebase.firestore(), FV = firebase.firestore.FieldValue, TSx = firebase.firestore.Timestamp;
+const $ = s => document.querySelector(s);
+const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 2500); };
+const ms = t => t && t.toMillis ? t.toMillis() : 0;
+const fmt = t => t ? new Date(t).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+function compute(u) {
+  const now = Date.now();
+  if (u.status === 'blocked') return { state: 'blocked', label: 'موقوف' };
+  let until = ms(u.activeUntil);
+  if (!until && u.activatedAt) until = (u.activeDays || 0) >= 36500 ? Infinity : ms(u.activatedAt) + (u.activeDays || 0) * DAY;
+  if (until && until > now) return { state: 'active', label: until === Infinity ? 'مفعّل مدى الحياة' : 'مفعّل لحد ' + fmt(until) };
+  const te = ms(u.trialEnd) || ms(u.createdAt) + TRIAL_DAYS * DAY;
+  if (te > now) { const d = Math.ceil((te - now) / DAY); return { state: 'trial', label: `تجربة — باقي ${d} يوم` }; }
+  return { state: 'expired', label: 'التجربة خلصت (علامة مائية)' };
+}
+
+/* ---------- الدخول ---------- */
+$('#go').onclick = async () => {
+  $('#lmsg').textContent = '';
+  try { await auth.signInWithEmailAndPassword($('#em').value.trim(), $('#pw').value); }
+  catch (e) { $('#lmsg').textContent = e.code === 'auth/invalid-credential' ? 'الإيميل أو كلمة السر غلط' : (e.code || e.message); }
+};
+$('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
+$('#out').onclick = () => auth.signOut();
+auth.onAuthStateChanged(u => {
+  const ok = u && u.email === ADMIN && u.emailVerified;
+  $('#login').classList.toggle('hidden', !!ok); $('#app').classList.toggle('hidden', !ok); $('#out').classList.toggle('hidden', !u);
+  if (u && !ok) $('#lmsg').textContent = u.email !== ADMIN ? 'الحساب ده مش حساب المطور' : 'أكّد الإيميل الأول (افتح رسالة التأكيد في جيميل)';
+  if (ok) { loadUsers(); loadCodes(); }
+});
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('#users').classList.toggle('hidden', b.dataset.t !== 'users'); $('#codes').classList.toggle('hidden', b.dataset.t !== 'codes');
+});
+
+/* ---------- المستخدمين ---------- */
+let USERS = [];
+async function loadUsers() {
+  $('#ulist').innerHTML = '<div class="empty">لحظة…</div>';
+  try {
+    const s = await db.collection('users').get();
+    USERS = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
+    renderUsers();
+  } catch (e) { $('#ulist').innerHTML = `<div class="empty">مشكلة: ${e.code || e.message}</div>`; }
+}
+function renderUsers() {
+  const q = $('#q').value.trim().toLowerCase();
+  const cnt = { trial: 0, expired: 0, active: 0, blocked: 0 }; USERS.forEach(u => cnt[compute(u).state]++);
+  $('#stats').innerHTML = `<div class="stat"><b>${USERS.length}</b><span>كل المستخدمين</span></div><div class="stat"><b style="color:var(--warn)">${cnt.trial}</b><span>في التجربة</span></div><div class="stat"><b style="color:var(--bad)">${cnt.expired}</b><span>التجربة خلصت</span></div><div class="stat"><b style="color:var(--ok)">${cnt.active}</b><span>مفعّلين</span></div>`;
+  const list = USERS.filter(u => !q || (u.email || '').toLowerCase().includes(q));
+  if (!list.length) { $('#ulist').innerHTML = '<div class="empty">مفيش مستخدمين لسه</div>'; return; }
+  $('#ulist').innerHTML = list.map(u => {
+    const c = compute(u), dv = (k, n) => `<span>${u[k] ? '✅' : '▫️'} ${n}</span>`;
+    return `<div class="u" data-id="${u.id}">
+      <div class="top"><span class="em">${u.email || u.id}</span><span class="pill ${c.state}">${c.label}</span></div>
+      <div class="meta">سجّل: ${fmt(ms(u.createdAt))}${u.code ? ` · كود: <b dir="ltr">${u.code}</b>` : ''}<br><span class="devs">${dv('devWeb', 'متصفح')}${dv('devWin', 'كمبيوتر')}${dv('devMobile', 'موبايل')}</span></div>
+      <div class="acts">
+        <button class="pri" data-a="act">✅ فعّل</button>
+        <button data-a="trial">🎁 مدّ التجربة</button>
+        ${c.state === 'active' ? '<button data-a="deact">↩ إلغاء التفعيل</button>' : ''}
+        <button data-a="devs">📱 امسح الأجهزة</button>
+        <button class="bad" data-a="block">${u.status === 'blocked' ? '🔓 إلغاء الإيقاف' : '⛔ إيقاف'}</button>
+      </div></div>`;
+  }).join('');
+  document.querySelectorAll('.u .acts button').forEach(b => b.onclick = () => userAction(b.closest('.u').dataset.id, b.dataset.a));
+}
+$('#q').oninput = renderUsers;
+function askDays(t) {
+  const v = prompt(t + '\nاكتب عدد الأيام (مثلاً 30 أو 365)، أو 0 = مدى الحياة', '365');
+  if (v === null) return null; const n = parseInt(v, 10); return isNaN(n) || n < 0 ? null : n;
+}
+async function userAction(id, a) {
+  const u = USERS.find(x => x.id === id), ref = db.collection('users').doc(id);
+  try {
+    if (a === 'act') {
+      const d = askDays('تفعيل ' + u.email); if (d === null) return;
+      await ref.update({ status: 'active', activeUntil: TSx.fromMillis(d === 0 ? Date.now() + 36500 * DAY : Date.now() + d * DAY) });
+      toast('✅ اتفعّل');
+    } else if (a === 'trial') {
+      const v = prompt('مدّ التجربة لـ ' + u.email + '\nكام يوم من النهارده؟', '7'); if (v === null) return;
+      const n = parseInt(v, 10); if (!(n > 0)) return;
+      await ref.update({ trialEnd: TSx.fromMillis(Date.now() + n * DAY) }); toast('🎁 التجربة اتمدّت');
+    } else if (a === 'deact') {
+      if (!confirm('إلغاء تفعيل ' + u.email + '؟')) return;
+      await ref.update({ status: 'trial', activeUntil: FV.delete(), activatedAt: FV.delete(), activeDays: FV.delete() }); toast('اتلغى التفعيل');
+    } else if (a === 'block') {
+      const blk = u.status !== 'blocked';
+      if (!confirm((blk ? 'إيقاف ' : 'إلغاء إيقاف ') + u.email + '؟')) return;
+      await ref.update({ status: blk ? 'blocked' : (u.activatedAt || u.activeUntil ? 'active' : 'trial') }); toast(blk ? '⛔ اتوقف' : '🔓 اتلغى الإيقاف');
+    } else if (a === 'devs') {
+      if (!confirm('مسح كل أجهزة ' + u.email + '؟\nبعدها يقدر يدخل من أجهزة جديدة (متصفح + كمبيوتر + موبايل).')) return;
+      const b = db.batch();
+      const ds = await db.collection('devices').where('uid', '==', id).get(); ds.forEach(d => b.delete(d.ref));
+      const fs = await db.collection('fps').where('uid', '==', id).get(); fs.forEach(d => b.delete(d.ref));
+      b.update(ref, { devWeb: FV.delete(), devWin: FV.delete(), devMobile: FV.delete() });
+      await b.commit(); toast('📱 الأجهزة اتمسحت');
+    }
+    loadUsers();
+  } catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
+}
+
+/* ---------- الأكواد ---------- */
+const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const rnd = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => ABC[b % ABC.length]).join('');
+$('#gGo').onclick = async () => {
+  const n = Math.min(100, Math.max(1, parseInt($('#gN').value, 10) || 1)), days = parseInt($('#gD').value, 10), em = $('#gE').value.trim().toLowerCase();
+  const b = db.batch(), made = [];
+  for (let i = 0; i < n; i++) { const c = `APDF-${rnd(4)}-${rnd(4)}`; made.push(c); b.set(db.collection('codes').doc(c), { days, email: em, createdAt: FV.serverTimestamp() }); }
+  try { await b.commit(); toast(`اتعمل ${n} كود`); loadCodes(); try { await navigator.clipboard.writeText(made.join('\n')); toast(`اتعمل ${n} كود — واتنسخوا`); } catch (e) { } }
+  catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
+};
+const DN = d => d >= 36500 ? 'مدى الحياة' : d === 365 ? 'سنة' : d === 30 ? 'شهر' : d + ' يوم';
+async function loadCodes() {
+  try {
+    const s = await db.collection('codes').get();
+    const L = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.uid ? 1 : 0) - (b.uid ? 1 : 0) || ms(b.createdAt) - ms(a.createdAt));
+    if (!L.length) { $('#clist').innerHTML = '<div class="empty">مفيش أكواد لسه — ولّد من فوق</div>'; return; }
+    $('#clist').innerHTML = `<table><tr><th>الكود</th><th>المدة</th><th>لمين</th><th>الحالة</th><th></th></tr>${L.map(c => `<tr>
+      <td class="code">${c.id}</td><td>${DN(c.days)}</td><td dir="ltr" style="text-align:left">${c.email || 'أي حد'}</td>
+      <td>${c.uid ? `<span style="color:var(--ok)">اتستخدم</span><br><small dir="ltr">${c.usedEmail || ''}</small>` : 'جاهز'}</td>
+      <td>${c.uid ? '' : `<button class="btn" data-c="${c.id}">نسخ</button> <button class="btn" data-d="${c.id}" style="color:var(--bad)">حذف</button>`}</td></tr>`).join('')}</table>`;
+    document.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.c); toast('اتنسخ: ' + b.dataset.c); } catch (e) { prompt('انسخ الكود:', b.dataset.c); } });
+    document.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { if (confirm('حذف الكود ' + b.dataset.d + '؟')) { await db.collection('codes').doc(b.dataset.d).delete(); loadCodes(); } });
+  } catch (e) { $('#clist').innerHTML = `<div class="empty">مشكلة: ${e.code || e.message}</div>`; }
+}
+</script>
+</body>
+</html>
