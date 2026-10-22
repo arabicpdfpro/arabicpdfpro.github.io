@@ -218,6 +218,7 @@
     LIC.user = u; LIC.info = r; LIC.state = r.state; LIC.data = data;
     if (r.state === 'blocked') return stopView('⛔', 'الحساب ده موقوف', 'تواصل مع المطور لو فيه مشكلة');
     hide(); renderBar();
+    if (!offline && window.SF) setTimeout(() => SF.sync(), 800);   // الخطوط الجديدة اللي المطور ضافها
   }
 
   function renderBar() {

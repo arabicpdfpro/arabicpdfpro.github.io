@@ -1782,7 +1782,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.25</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.26</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
@@ -1792,9 +1792,9 @@ const DEV_BOX = 'YWJvbW9zYTFAeWFob28uY29t';
 const nativeWaits = {};
 window.nativePostDone = (id, status, body) => { const f = nativeWaits[id]; delete nativeWaits[id]; if (f) f({ status, body }); };
 function nativePost(url, json) { return new Promise(res => { const id = uid(); nativeWaits[id] = res; N.postJson(id, url, json); setTimeout(() => { if (nativeWaits[id]) { delete nativeWaits[id]; res({ status: 0, body: '{"message":"انتهت المهلة — النت بطيء"}' }); } }, 25000); }); }
-function openContact() {
-  const types = [['اقتراح', 'اقتراح'], ['مشكلة', 'مشكلة في التطبيق'], ['استفسار', 'استفسار']];
-  let type = types[0][0];
+function openContact(pre) {
+  const types = [['اقتراح', 'اقتراح'], ['مشكلة', 'مشكلة في التطبيق'], ['خط', 'طلب إضافة خط'], ['استفسار', 'استفسار']];
+  let type = (pre && pre.type) || types[0][0];
   const body = openSheet(`
     <div class="sh-head"><h3>تواصل مع المطور</h3></div>
     <p style="margin:0 0 8px;color:var(--muted);font-size:13px">اكتب اقتراحك أو المشكلة اللي قابلتك، والرسالة هتوصل للمطور مباشرة.</p>
@@ -1805,7 +1805,9 @@ function openContact() {
     <div class="row"><button class="btn pri" id="ctSend" style="flex:1">إرسال</button></div>`);
   const paint = () => { const r = $('#ctTypes', body); r.innerHTML = ''; types.forEach(([k, n]) => { const c = document.createElement('button'); c.className = 'chip' + (k === type ? ' on' : ''); c.textContent = n; c.onclick = () => { type = k; paint(); }; r.appendChild(c); }); };
   paint();
-  setTimeout(() => $('#ctMsg', body).focus(), 250);
+  if (pre && pre.text) $('#ctMsg', body).value = pre.text;
+  if (window.LIC && LIC.user) $('#ctBack', body).value = LIC.user.email;
+  setTimeout(() => { const t = $('#ctMsg', body); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 250);
   $('#ctSend', body).onclick = async () => {
     const msg = $('#ctMsg', body).value.trim();
     if (!msg) { toast('اكتب الرسالة الأول'); return; }
@@ -1843,7 +1845,9 @@ function openLibManager() {
 
 /* ---------------- الخطوط: إضافة من الملفات أو من النت ---------------- */
 function openFontsSheet(q, onInstalled) {
+  if (!SF.isAdmin()) return openFontsUser(q);
   const body = openSheet(`<div class="sh-head"><h3>الخطوط</h3></div>
+    <div style="font-size:12.5px;color:#1e6b3f;background:#e8f6ee;border-radius:10px;padding:7px 10px;margin-bottom:8px">🛠 انت داخل بحساب المطور — أي خط تضيفه هيتحفظ في قاعدة البيانات ويوصل لكل المستخدمين</div>
     <div class="row" style="flex-wrap:wrap;gap:8px">
       <button class="btn pri" id="ufFile" style="flex:1 1 100%">📁 إضافة خط من الملفات <small style="opacity:.8">(TTF · OTF · WOFF)</small></button>
     </div>
@@ -1856,7 +1860,7 @@ function openFontsSheet(q, onInstalled) {
     const l = $('#ufList', body);
     if (!UF.list.length) { l.innerHTML = '<div style="color:var(--muted);font-size:13.5px;padding:8px 2px">لسه ما ضفتش خطوط</div>'; return; }
     l.innerHTML = UF.list.map(r => `<div class="uf-row"><div class="uf-n"><b style="font-family:'${r.family}','Cairo'">${r.name}</b><span style="font-family:'${r.family}','Cairo'">${r.col === 'en' ? 'The quick brown fox 123' : 'أبجد هوز حطي كلمن 123'}</span><small>${r.source === 'google' ? 'من Google Fonts' : 'من ملف'} · ${r.col === 'both' ? 'عربي + إنجليزي' : r.col === 'ar' ? 'عربي' : 'إنجليزي'}</small></div><button class="btn" data-del="${r.id}">حذف</button></div>`).join('');
-    $$('[data-del]', l).forEach(b => b.onclick = async () => { const r = UF.list.find(x => x.id === b.dataset.del); if (!confirm(`حذف خط "${r.name}"؟`)) return; await UF.remove(r.id); fill(); toast('اتحذف'); });
+    $$('[data-del]', l).forEach(b => b.onclick = async () => { const r = UF.list.find(x => x.id === b.dataset.del); if (!confirm(`حذف خط "${r.name}" من البرنامج عند كل المستخدمين؟`)) return; busy(true, 'جاري الحذف…'); try { await SF.remove(r.id); await UF.remove(r.id); toast('اتحذف'); } catch (e) { toast('مشكلة في الحذف: ' + (e.code || e.message)); } busy(false); fill(); });
   };
   fill();
   $('#ufFile', body).onclick = async () => {
@@ -1867,20 +1871,24 @@ function openFontsSheet(q, onInstalled) {
         const buf = await f.arrayBuffer(); const nm = sfntNames(buf);
         const name = (nm.family || f.name.replace(/\.(ttf|otf|woff2?)$/i, '')).trim();
         const bold = /bold|black|heavy/i.test((nm.full || '') + f.name) && !/semi|demi/i.test(nm.full || '');
+        if (buf.byteLength > 3 * 1024 * 1024) { toast(`الخط "${f.name}" أكبر من 3 ميجا`, 3000); continue; }
         const same = UF.list.find(r => r.name.toLowerCase() === name.toLowerCase());
-        if (same) { same.faces.push({ data: buf, weight: bold ? 700 : 400 }); await UF.tx('readwrite', st => st.put(same)); await UF.register(same); }
-        else await UF.save(name, [{ data: buf, weight: bold ? 700 : 400 }], { ps: nm.ps, full: nm.full, source: 'file' });
+        let rec;
+        if (same) { same.faces.push({ data: buf, weight: bold ? 700 : 400 }); await UF.tx('readwrite', st => st.put(same)); await UF.register(same); rec = same; }
+        else rec = await UF.save(name, [{ data: buf, weight: bold ? 700 : 400 }], { ps: nm.ps, full: nm.full, source: 'file' });
+        busy(true, 'جاري الرفع لقاعدة البيانات…');
+        try { await SF.upload(rec); } catch (e) { console.warn(e); toast('الخط اتضاف على الجهاز ده بس — الرفع لقاعدة البيانات فشل: ' + (e.code || e.message), 5000); }
         ok++;
       } catch (e) { console.warn(e); toast(`الملف "${f.name}" مش خط صالح`, 3000); }
     }
-    busy(false); fill(); if (ok) { toast(`✅ اتثبّت ${ok > 1 ? ok + ' خطوط' : 'الخط'} — هتلاقيه أول القايمة في الكتابة`, 3200); if (onInstalled) { closeSheet(true); onInstalled(UF.list[UF.list.length - 1]); } }
+    busy(false); fill(); if (ok) { toast(`✅ اتضاف ${ok > 1 ? ok + ' خطوط' : 'الخط'} للبرنامج — وهيوصل لكل المستخدمين`, 3200); if (onInstalled) { closeSheet(true); onInstalled(UF.list[UF.list.length - 1]); } }
   };
   const go = async () => {
     const name = $('#ufQ', body).value.trim(); if (!name) return;
     const res = $('#ufRes', body); res.innerHTML = 'بدوّر…'; res.style.color = 'var(--muted)';
     try {
       const rec = await installGoogleFont(name);
-      res.innerHTML = `✅ اتثبّت <b style="font-family:'${rec.family}'">${rec.name}</b> — هتلاقيه أول قايمة الخطوط`; res.style.color = '#1e8449'; fill();
+      res.innerHTML = `✅ اتضاف <b style="font-family:'${rec.family}'">${rec.name}</b> للبرنامج — هيوصل لكل المستخدمين`; res.style.color = '#1e8449'; fill();
       if (onInstalled) { setTimeout(() => { closeSheet(true); onInstalled(rec); }, 900); }
     } catch (e) {
       const q = encodeURIComponent(`"${name}" font download ttf`);
@@ -1893,12 +1901,30 @@ function openFontsSheet(q, onInstalled) {
   $('#ufGo', body).onclick = go; $('#ufQ', body).onkeydown = e => { if (e.key === 'Enter') go(); };
   if (q) { $('#ufQ', body).value = q; go(); }
 }
+// شاشة الخطوط للمستخدم العادي: يشوف الخطوط ويطلب خط جديد
+function openFontsUser(q) {
+  const body = openSheet(`<div class="sh-head"><h3>الخطوط</h3></div>
+    <p style="margin:0 0 8px;font-size:13.5px;color:var(--muted);line-height:1.7">محتاج خط مش موجود؟ ابعتلنا اسمه، وبعد ما نراجعه ونتأكد من رخصته هنضيفه للبرنامج ويوصلك تلقائي.</p>
+    <button class="btn pri" id="ufReq" style="width:100%">✉ اطلب إضافة خط</button>
+    <div class="sec-title">🔤 الخطوط المضافة للبرنامج</div>
+    <div id="ufList"></div>`);
+  const l = $('#ufList', body);
+  l.innerHTML = UF.list.length ? UF.list.map(r => `<div class="uf-row"><div class="uf-n"><b style="font-family:'${r.family}','Cairo'">${r.name}</b><span style="font-family:'${r.family}','Cairo'">${r.col === 'en' ? 'The quick brown fox 123' : 'أبجد هوز حطي كلمن 123'}</span></div></div>`).join('')
+    : '<div style="color:var(--muted);font-size:13.5px;padding:8px 2px">مفيش خطوط إضافية لسه</div>';
+  $('#ufReq', body).onclick = () => openContact({ type: 'خط', text: q ? `عايز خط: ${q}\n(ظهر في ملف PDF بعدّل عليه)` : 'عايز خط: ' });
+}
 // تثبيت خط من Google Fonts بالاسم (عادي + عريض، كل الأجزاء: عربي ولاتيني…)
 async function installGoogleFont(name) {
   const fam = name.trim().replace(/\s+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   if (UF.list.find(r => r.name.toLowerCase() === fam.toLowerCase())) return UF.list.find(r => r.name.toLowerCase() === fam.toLowerCase());
   const builtin = FONTS.find(f => !f.user && f.f.toLowerCase() === fam.toLowerCase());
   if (builtin) { toast(`"${builtin.n}" موجود أصلاً في القايمة`, 3000); return { family: builtin.f, name: builtin.n }; }
+  const faces = await googleFaces(fam);
+  const rec = await UF.save(fam, faces, { source: 'google' });
+  try { await SF.upload(rec); } catch (e) { console.warn(e); toast('الخط اتضاف على الجهاز ده بس — الرفع لقاعدة البيانات فشل: ' + (e.code || e.message), 5000); }
+  return rec;
+}
+async function googleFaces(fam) {
   let css = null;
   for (const u of [`https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@400;700`, `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}`]) {
     let r; try { r = await fetch(u); } catch (e) { throw { offline: true }; }
@@ -1914,8 +1940,65 @@ async function installGoogleFont(name) {
     faces.push({ data, weight, range: range && range.trim() });
   }
   if (!faces.length) throw { notFound: true };
-  return await UF.save(fam, faces, { source: 'google' });
+  return faces;
 }
+/* الخطوط المشتركة: اللي المطور بيضيفه بيتحفظ في قاعدة البيانات ويوصل لكل المستخدمين */
+const SF = {
+  db: () => (window.firebase && firebase.apps && firebase.apps.length && window.LIC && LIC.user) ? firebase.firestore() : null,
+  isAdmin: () => !!(window.LIC && LIC.user && LIC.user.email === 'arabicpdfpro@gmail.com' && LIC.user.emailVerified),
+  CHUNK: 900000,
+  async sync() {
+    const db = this.db(); if (!db) return;
+    try {
+      const snap = await db.collection('fonts').get();
+      const remote = new Map(snap.docs.map(d => [d.id, d.data()]));
+      let added = 0;
+      for (const [id, m] of remote) {
+        if (UF.list.find(r => r.id === id)) continue;
+        try {
+          let faces;
+          if (m.source === 'google') faces = await googleFaces(m.name);
+          else {
+            const ps = await db.collection('fonts').doc(id).collection('parts').get();
+            const parts = {}; ps.forEach(d => parts[d.id] = d.data().d.toUint8Array());
+            faces = (m.faces || []).map((f, i) => {
+              const bufs = Array.from({ length: f.parts }, (_, k) => parts[i + '_' + k]); const len = bufs.reduce((a, b) => a + b.length, 0);
+              const out = new Uint8Array(len); let o = 0; bufs.forEach(b => { out.set(b, o); o += b.length; });
+              return { data: out.buffer, weight: f.weight || 400, ...(f.range ? { range: f.range } : {}) };
+            });
+          }
+          await UF.save(m.name, faces, { id, shared: true, source: m.source, ps: m.ps || '', full: m.full || '' });
+          added++;
+        } catch (e) { console.warn('sync font', m.name, e); }
+      }
+      for (const r of UF.list.slice()) if (r.shared && !remote.has(r.id)) await UF.remove(r.id);
+      if (added) toast(`🔤 اتضاف ${added > 1 ? added + ' خطوط جديدة' : 'خط جديد'} للبرنامج`, 2800);
+    } catch (e) { console.warn('font sync', e); }
+  },
+  async upload(rec) {
+    const db = this.db(); if (!db || !this.isAdmin()) return;
+    const ref = db.collection('fonts').doc(rec.id);
+    const meta = { name: rec.name, source: rec.source || 'file', col: rec.col || 'both', ps: rec.ps || '', full: rec.full || '', addedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    if (rec.source !== 'google') {
+      const old = await ref.collection('parts').get(); for (const d of old.docs) await d.ref.delete();
+      meta.faces = [];
+      for (let i = 0; i < rec.faces.length; i++) {
+        const u8 = new Uint8Array(rec.faces[i].data); let k = 0;
+        for (let o = 0; o < u8.length; o += this.CHUNK, k++) await ref.collection('parts').doc(i + '_' + k).set({ d: firebase.firestore.Blob.fromUint8Array(u8.subarray(o, o + this.CHUNK)) });
+        meta.faces.push({ weight: rec.faces[i].weight || 400, parts: k, ...(rec.faces[i].range ? { range: rec.faces[i].range } : {}) });
+      }
+    }
+    await ref.set(meta);
+    rec.shared = true; await UF.tx('readwrite', st => st.put(rec));
+  },
+  async remove(id) {
+    const db = this.db(); if (!db || !this.isAdmin()) return;
+    const ref = db.collection('fonts').doc(id);
+    const ps = await ref.collection('parts').get(); for (const d of ps.docs) await d.ref.delete();
+    await ref.delete();
+  },
+};
+window.SF = SF;
 // شريط تحت: خط الملف مش موجود — ضيفه؟
 function missingFontBar(pdfFont, obj, pg) {
   const nm = cleanFontName(pdfFont) || pdfFont;
@@ -1925,7 +2008,9 @@ function missingFontBar(pdfFont, obj, pg) {
   document.body.appendChild(b);
   const close = () => b.remove();
   $('#mfX', b).onclick = close; setTimeout(close, 12000);
-  $('#mfAdd', b).onclick = () => { close(); const pn = $('#txPanel'); if (pn) pn.remove(); closeSheet(); setTimeout(() => openFontsSheet(nm, rec => { if (!obj || !rec || !rec.family) return; pushUndo(); obj.font = rec.family; fontReady(rec.family).then(() => { fitBox(obj); renderOverlay(pg); toast(`✅ اتثبّت "${rec.name}" واتطبق على السطر`, 3000); }); }), 150); };
+  if (!SF.isAdmin()) $('#mfAdd', b).textContent = 'اطلب الخط';
+  $('#mfAdd', b).onclick = () => { close(); const pn = $('#txPanel'); if (pn) pn.remove(); closeSheet();
+    if (!SF.isAdmin()) { setTimeout(() => openContact({ type: 'خط', text: `عايز خط: ${nm}\n(ظهر في ملف PDF بعدّل عليه — الاسم الكامل: ${pdfFont})` }), 150); return; } setTimeout(() => openFontsSheet(nm, rec => { if (!obj || !rec || !rec.family) return; pushUndo(); obj.font = rec.family; fontReady(rec.family).then(() => { fitBox(obj); renderOverlay(pg); toast(`✅ اتثبّت "${rec.name}" واتطبق على السطر`, 3000); }); }), 150); };
 }
 
 /* ---------------- البحث ---------------- */
