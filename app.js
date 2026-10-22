@@ -110,6 +110,87 @@ const Lib = {
   del(id) { this.set(this.get().filter(x => x.id !== id)); },
 };
 
+/* ---------------- خطوطي (خطوط بيضيفها المستخدم) ---------------- */
+// بتتحفظ في IndexedDB على الجهاز، وبتتسجل كـ FontFace فتظهر في قايمة الخطوط وتتحفظ في الـ PDF
+const UF = {
+  db: null, list: [],
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('apdf-fonts', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('fonts', { keyPath: 'id' });
+      r.onsuccess = () => res(this.db = r.result); r.onerror = () => rej(r.error);
+    });
+  },
+  async tx(mode, fn) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('fonts', mode); const st = t.objectStore('fonts'); const out = fn(st); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = () => rej(t.error); }); },
+  async all() { const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('fonts').objectStore('fonts').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); }); },
+  key: n => (n || '').toLowerCase().replace(/^[a-z]{6}\+/, '').replace(/[\s_\-,]|(mt|ps|std|pro|lt|regular|roman|normal|bold|italic|light|medium|black|heavy|semibold|demi|book)$/g, ''),
+  async register(rec) {
+    const fam = rec.family;
+    for (const fc of rec.faces) {
+      const ff = new FontFace(fam, fc.data, { weight: String(fc.weight || 400), ...(fc.range ? { unicodeRange: fc.range } : {}) });
+      await ff.load(); document.fonts.add(ff);
+    }
+    FONTS.filter(f => f.f === fam).forEach(f => FONTS.splice(FONTS.indexOf(f), 1));
+    FONTS.unshift({ f: fam, n: '⭐ ' + rec.name, sub: 'خطوطي', col: rec.col || 'both', user: true });
+  },
+  async init() {
+    try { this.list = await this.all(); for (const r of this.list) { try { await this.register(r); } catch (e) { console.warn('font', r.name, e); } } } catch (e) { console.warn('fonts db', e); }
+  },
+  // الخط بيدعم عربي؟ إنجليزي؟
+  coverage(fam) {
+    const c = document.createElement('canvas').getContext('2d');
+    const w = (txt, f) => { c.font = `40px ${f}`; return c.measureText(txt).width; };
+    const test = (txt) => ['serif', 'monospace'].some(fb => Math.abs(w(txt, `"${fam}", ${fb}`) - w(txt, fb)) > 0.5);
+    const ar = test('ابتثجحخ سلام'), en = test('abcdefgHIJK');
+    return ar && en ? 'both' : ar ? 'ar' : 'en';
+  },
+  async save(name, faces, extra = {}) {
+    const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const family = 'UF ' + name.replace(/["\\]/g, '') ;
+    const rec = { id, name, family, faces, added: Date.now(), ...extra };
+    await this.register(rec);
+    rec.col = this.coverage(family); FONTS.find(f => f.f === family).col = rec.col;
+    await this.tx('readwrite', st => st.put(rec));
+    this.list.push(rec);
+    return rec;
+  },
+  async remove(id) {
+    const r = this.list.find(x => x.id === id); if (!r) return;
+    await this.tx('readwrite', st => st.delete(id));
+    this.list = this.list.filter(x => x.id !== id);
+    const i = FONTS.findIndex(f => f.f === r.family); if (i >= 0) FONTS.splice(i, 1);
+    [...document.fonts].filter(f => f.family.replace(/"/g, '') === r.family).forEach(f => document.fonts.delete(f));
+  },
+  // خط مضاف بإيدك اسمه زي خط الملف؟
+  match(pdfName) {
+    const k = this.key(pdfName); if (!k) return null;
+    const r = this.list.find(x => [x.name, x.ps, x.full].some(n => n && (this.key(n) === k || (this.key(n).length > 3 && k.includes(this.key(n))))));
+    return r ? r.family : null;
+  },
+};
+// اسم الخط من جوه ملف TTF/OTF (جدول name)
+function sfntNames(buf) {
+  try {
+    const v = new DataView(buf); const tag = v.getUint32(0);
+    if (tag !== 0x00010000 && tag !== 0x4F54544F && tag !== 0x74727565) return {};
+    const n = v.getUint16(4); let off = 0;
+    for (let i = 0; i < n; i++) { const p = 12 + i * 16; if (String.fromCharCode(v.getUint8(p), v.getUint8(p + 1), v.getUint8(p + 2), v.getUint8(p + 3)) === 'name') off = v.getUint32(p + 8); }
+    if (!off) return {};
+    const cnt = v.getUint16(off + 2), so = off + v.getUint16(off + 4), out = {};
+    for (let i = 0; i < cnt; i++) {
+      const r = off + 6 + i * 12, pid = v.getUint16(r), lang = v.getUint16(r + 4), nid = v.getUint16(r + 6), len = v.getUint16(r + 8), o = v.getUint16(r + 10);
+      if (![1, 4, 6, 16].includes(nid)) continue;
+      let str = '';
+      if (pid === 3 || pid === 0) { for (let j = 0; j < len; j += 2) str += String.fromCharCode(v.getUint16(so + o + j)); if (pid === 3 && lang !== 0x409 && out[nid]) continue; }
+      else if (pid === 1) { for (let j = 0; j < len; j++) str += String.fromCharCode(v.getUint8(so + o + j)); if (out[nid]) continue; }
+      if (str) out[nid] = str;
+    }
+    return { family: out[16] || out[1], full: out[4], ps: out[6] };
+  } catch (e) { return {}; }
+}
+const cleanFontName = n => (n || '').replace(/^[A-Z]{6}\+/, '').replace(/[,-](Bold|Italic|Regular|Light|Medium|Black|Heavy|SemiBold|Book|Roman|MT|PS).*$/i, '').replace(/(PSMT|MT|PS)$/,'').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+
 /* ================= تحميل المستند ================= */
 async function openDocument(bytes, name) {
   busy(true, 'جاري فتح الملف…');
@@ -839,6 +920,7 @@ function looksReversed(t) {
 function mapPdfFont(name) {
   const n = (name || '').toLowerCase().replace(/[\s_-]/g, '');
   const bold = /bold|black|heavy|semibold|demi/.test(n);
+  const uf = UF.match(name); if (uf) return { font: uf, bold, user: true };
   const table = [[/dinnext.*(arabic|w23)?.*(bold|medium|black|heavy)/, 'Sub DIN Bold'], [/dinnext/, 'Sub DIN Light'], [/timesnewroman|times/, 'Sub TNR'], [/arial|helvetica/, 'Sub Arial'],
     [/calibri/, 'Sub Calibri'], [/agency/, 'Sub Agency'], [/amiri/, 'Amiri'], [/tajawal/, 'Tajawal'], [/cairo/, 'Cairo'], [/almarai/, 'Almarai'], [/notonaskh/, 'Noto Naskh Arabic'],
     [/notokufi/, 'Noto Kufi Arabic'], [/notosansarabic/, 'Noto Sans Arabic'], [/ibmplexsansarabic|plexarabic/, 'IBM Plex Sans Arabic'], [/scheherazade/, 'Scheherazade New'], [/lateef/, 'Lateef'],
@@ -881,7 +963,7 @@ function editPdfLine(p, line, R) {
   const size = Math.max(4, Math.round(line.h * 2) / 2);   // نفس حجم الخط الأصلي (مايصغرش بعد التعديل)
   const mf = mapPdfFont(line.font);
   const o = { type: 'text', id: uid(), x: R.x, y: R.y, text: line.text, font: mf.font || 'Sub TNR', size, color: '#000000', bg: '#ffffff', align: line.rtl ? 'right' : 'left', bold: mf.bold, opacity: 1, fromPdf: true };
-  if (line.font && !mf.font) toast(`خط الملف الأصلي "${line.font}" مش موجود عندنا — استخدمت Times New Roman`, 4000);
+  if (line.font && !mf.font) setTimeout(() => missingFontBar(line.font, o, p), 600);
   // المربع الأبيض على قد حبر الكلام القديم بالظبط (عشان مايقطعش خطوط الجدول اللي فوق وتحت)
   const base = line.y2 - line.h * 0.25;
   const setInk = () => {
@@ -1700,7 +1782,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.24</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.25</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
@@ -1752,10 +1834,98 @@ function openContact() {
   };
 }
 function openLibManager() {
-  const body = openSheet(`<div class="sh-head"><h3>التواقيع والأختام</h3></div>
-    <div class="menu-list"><button id="lmS">${icon('sign')} التوقيعات</button><button id="lmT">${icon('stamp')} الأختام</button><button id="lmH">${icon('hf')} الهيدر والفوتر</button></div>`);
+  const body = openSheet(`<div class="sh-head"><h3>التواقيع والأختام والخطوط</h3></div>
+    <div class="menu-list"><button id="lmS">${icon('sign')} التوقيعات</button><button id="lmT">${icon('stamp')} الأختام</button><button id="lmH">${icon('hf')} الهيدر والفوتر</button><button id="lmF"><span class="ic" style="font-weight:800;font-family:Amiri,serif;font-size:19px;display:inline-grid;place-items:center">خ</span> الخطوط</button></div>`);
+  $('#lmF', body).onclick = () => openFontsSheet();
   $('#lmH', body).onclick = () => { if (curScreen() !== 'editor') { toast('افتح ملف الأول عشان تضيف هيدر أو فوتر'); } openHFSheet(); };
   $('#lmS', body).onclick = () => openSignSheet(true); $('#lmT', body).onclick = () => openStampSheet(true);
+}
+
+/* ---------------- الخطوط: إضافة من الملفات أو من النت ---------------- */
+function openFontsSheet(q, onInstalled) {
+  const body = openSheet(`<div class="sh-head"><h3>الخطوط</h3></div>
+    <div class="row" style="flex-wrap:wrap;gap:8px">
+      <button class="btn pri" id="ufFile" style="flex:1 1 100%">📁 إضافة خط من الملفات <small style="opacity:.8">(TTF · OTF · WOFF)</small></button>
+    </div>
+    <div class="sec-title">🔎 دوّر على خط في النت</div>
+    <div class="row" style="gap:6px"><input class="field" id="ufQ" dir="auto" placeholder="اسم الخط… مثلاً Tajawal أو Al Fanan" style="flex:1;margin:0"><button class="btn" id="ufGo">دوّر</button></div>
+    <div id="ufRes" style="font-size:13.5px;line-height:1.7;margin:6px 2px 4px;color:var(--muted)">بيدوّر في مكتبة Google Fonts (أكتر من 1500 خط مجاني) ويثبّت الخط على طول. لو مش موجود هناك، هنفتحلك بحث في جوجل تنزّل منه الملف وتضيفه من فوق.</div>
+    <div class="sec-title">⭐ خطوطي</div>
+    <div id="ufList"></div>`);
+  const fill = () => {
+    const l = $('#ufList', body);
+    if (!UF.list.length) { l.innerHTML = '<div style="color:var(--muted);font-size:13.5px;padding:8px 2px">لسه ما ضفتش خطوط</div>'; return; }
+    l.innerHTML = UF.list.map(r => `<div class="uf-row"><div class="uf-n"><b style="font-family:'${r.family}','Cairo'">${r.name}</b><span style="font-family:'${r.family}','Cairo'">${r.col === 'en' ? 'The quick brown fox 123' : 'أبجد هوز حطي كلمن 123'}</span><small>${r.source === 'google' ? 'من Google Fonts' : 'من ملف'} · ${r.col === 'both' ? 'عربي + إنجليزي' : r.col === 'ar' ? 'عربي' : 'إنجليزي'}</small></div><button class="btn" data-del="${r.id}">حذف</button></div>`).join('');
+    $$('[data-del]', l).forEach(b => b.onclick = async () => { const r = UF.list.find(x => x.id === b.dataset.del); if (!confirm(`حذف خط "${r.name}"؟`)) return; await UF.remove(r.id); fill(); toast('اتحذف'); });
+  };
+  fill();
+  $('#ufFile', body).onclick = async () => {
+    const files = await pickFile('fFont', true); if (!files || !files.length) return;
+    busy(true, 'جاري تثبيت الخط…'); let ok = 0;
+    for (const f of files) {
+      try {
+        const buf = await f.arrayBuffer(); const nm = sfntNames(buf);
+        const name = (nm.family || f.name.replace(/\.(ttf|otf|woff2?)$/i, '')).trim();
+        const bold = /bold|black|heavy/i.test((nm.full || '') + f.name) && !/semi|demi/i.test(nm.full || '');
+        const same = UF.list.find(r => r.name.toLowerCase() === name.toLowerCase());
+        if (same) { same.faces.push({ data: buf, weight: bold ? 700 : 400 }); await UF.tx('readwrite', st => st.put(same)); await UF.register(same); }
+        else await UF.save(name, [{ data: buf, weight: bold ? 700 : 400 }], { ps: nm.ps, full: nm.full, source: 'file' });
+        ok++;
+      } catch (e) { console.warn(e); toast(`الملف "${f.name}" مش خط صالح`, 3000); }
+    }
+    busy(false); fill(); if (ok) { toast(`✅ اتثبّت ${ok > 1 ? ok + ' خطوط' : 'الخط'} — هتلاقيه أول القايمة في الكتابة`, 3200); if (onInstalled) { closeSheet(true); onInstalled(UF.list[UF.list.length - 1]); } }
+  };
+  const go = async () => {
+    const name = $('#ufQ', body).value.trim(); if (!name) return;
+    const res = $('#ufRes', body); res.innerHTML = 'بدوّر…'; res.style.color = 'var(--muted)';
+    try {
+      const rec = await installGoogleFont(name);
+      res.innerHTML = `✅ اتثبّت <b style="font-family:'${rec.family}'">${rec.name}</b> — هتلاقيه أول قايمة الخطوط`; res.style.color = '#1e8449'; fill();
+      if (onInstalled) { setTimeout(() => { closeSheet(true); onInstalled(rec); }, 900); }
+    } catch (e) {
+      const q = encodeURIComponent(`"${name}" font download ttf`);
+      res.style.color = 'var(--ink)';
+      res.innerHTML = e && e.offline ? '📶 مفيش نت — جرب تاني لما النت يرجع' : `الخط <b>${name}</b> مش موجود في Google Fonts (غالباً خط مدفوع أو من موقع تاني).<br>
+        <button class="btn" id="ufWeb" style="margin-top:6px">🌐 دوّر عليه في جوجل</button> <span style="font-size:12.5px">نزّل ملف الخط (TTF أو OTF) وبعدين دوس "إضافة خط من الملفات"</span>`;
+      const w = $('#ufWeb', body); if (w) w.onclick = () => window.open('https://www.google.com/search?q=' + q, '_blank');
+    }
+  };
+  $('#ufGo', body).onclick = go; $('#ufQ', body).onkeydown = e => { if (e.key === 'Enter') go(); };
+  if (q) { $('#ufQ', body).value = q; go(); }
+}
+// تثبيت خط من Google Fonts بالاسم (عادي + عريض، كل الأجزاء: عربي ولاتيني…)
+async function installGoogleFont(name) {
+  const fam = name.trim().replace(/\s+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  if (UF.list.find(r => r.name.toLowerCase() === fam.toLowerCase())) return UF.list.find(r => r.name.toLowerCase() === fam.toLowerCase());
+  const builtin = FONTS.find(f => !f.user && f.f.toLowerCase() === fam.toLowerCase());
+  if (builtin) { toast(`"${builtin.n}" موجود أصلاً في القايمة`, 3000); return { family: builtin.f, name: builtin.n }; }
+  let css = null;
+  for (const u of [`https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@400;700`, `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}`]) {
+    let r; try { r = await fetch(u); } catch (e) { throw { offline: true }; }
+    if (r.ok) { css = await r.text(); break; }
+  }
+  if (!css) throw { notFound: true };
+  const faces = [];
+  for (const blk of css.match(/@font-face\s*{[^}]+}/g) || []) {
+    const url = (blk.match(/url\((https:[^)]+)\)/) || [])[1]; if (!url) continue;
+    const weight = +((blk.match(/font-weight:\s*(\d+)/) || [])[1] || 400), range = (blk.match(/unicode-range:\s*([^;]+);/) || [])[1];
+    if (/font-style:\s*italic/.test(blk)) continue;
+    const data = await (await fetch(url)).arrayBuffer();
+    faces.push({ data, weight, range: range && range.trim() });
+  }
+  if (!faces.length) throw { notFound: true };
+  return await UF.save(fam, faces, { source: 'google' });
+}
+// شريط تحت: خط الملف مش موجود — ضيفه؟
+function missingFontBar(pdfFont, obj, pg) {
+  const nm = cleanFontName(pdfFont) || pdfFont;
+  let b = $('#mfBar'); if (b) b.remove();
+  b = document.createElement('div'); b.id = 'mfBar';
+  b.innerHTML = `<span>خط الملف <b dir="ltr">${nm}</b> مش متثبّت — استخدمت خط قريب منه</span><button id="mfAdd">ضيف الخط</button><button id="mfX" class="x">✕</button>`;
+  document.body.appendChild(b);
+  const close = () => b.remove();
+  $('#mfX', b).onclick = close; setTimeout(close, 12000);
+  $('#mfAdd', b).onclick = () => { close(); const pn = $('#txPanel'); if (pn) pn.remove(); closeSheet(); setTimeout(() => openFontsSheet(nm, rec => { if (!obj || !rec || !rec.family) return; pushUndo(); obj.font = rec.family; fontReady(rec.family).then(() => { fitBox(obj); renderOverlay(pg); toast(`✅ اتثبّت "${rec.name}" واتطبق على السطر`, 3000); }); }), 150); };
 }
 
 /* ---------------- البحث ---------------- */
@@ -2236,6 +2406,7 @@ async function init() {
   bindPinch();
   bindDesktop();
   let rt, lastW = window.innerWidth; window.addEventListener('resize', () => { placePanel(); clearTimeout(rt); rt = setTimeout(() => { if (window.innerWidth === lastW) return; lastW = window.innerWidth; if (curScreen() === 'editor' && S.pages.length) layout(); }, 200); });
+  UF.init();
   // تحميل الخطوط مسبقاً حتى يظهر العربي صحيحاً على الـ canvas
   try { await Promise.all(['Cairo', 'Tajawal', 'Amiri'].map(fontReady)); } catch (e) { }
   if (N && N.hasPending()) window.onNativeFile();
