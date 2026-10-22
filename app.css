@@ -327,3 +327,16 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 #mfBar span{flex:1;line-height:1.5}
 #mfBar button{border:0;border-radius:10px;padding:7px 12px;background:#e88c28;color:#fff;font:inherit;font-weight:800;white-space:nowrap}
 #mfBar button.x{background:transparent;padding:4px 6px;font-size:16px}
+
+/* رفع خط للمراجعة */
+.fup{background:#f4f8f8;border:1.5px solid #dbe6e6;border-radius:14px;padding:10px 12px}
+.fup-h{display:flex;align-items:center;gap:8px}
+.fup-h b{flex:1;font-size:14.5px}
+.fup-i{width:26px;height:26px;border-radius:50%;border:1.5px solid #1a7f8f;color:#1a7f8f;background:#fff;font:italic 800 14px Georgia,serif;display:grid;place-items:center;flex:none}
+.fup-pol{margin-top:8px;font-size:13px;line-height:1.8;background:#fff;border-radius:10px;padding:9px 11px;color:#2c3e3e}
+.fup-msg{font-size:13px;line-height:1.7;margin-top:6px}
+.cbox-w{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:20px}
+.cbox{background:#fff;border-radius:18px;padding:18px 16px 14px;max-width:360px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+.cbox-t{font-size:14.5px;line-height:1.85;text-align:center}
+.cbox-b{display:flex;gap:10px;margin-top:14px}
+.cbox-b .btn{flex:1}

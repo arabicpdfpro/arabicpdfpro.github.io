@@ -46,6 +46,13 @@
   .msg{color:var(--bad);font-size:13.5px;margin-top:10px;min-height:18px;text-align:center}
   .empty{text-align:center;color:var(--mut);padding:30px}
   .hidden{display:none!important}
+  .fr{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .fr .pv{font-size:22px;margin:6px 0;line-height:1.5;word-break:break-word}
+  .fr .pv.en{direction:ltr;text-align:left}
+  .verd{display:inline-block;border-radius:20px;padding:3px 10px;font-weight:800;font-size:13px}
+  .verd.g{background:#e8f6ee;color:var(--ok)} .verd.r{background:#fdecea;color:var(--bad)} .verd.y{background:#fff4e5;color:var(--warn)}
+  .lic{font-size:12.5px;color:var(--mut);direction:ltr;text-align:left;background:#f4f7f7;border-radius:8px;padding:6px 8px;margin-top:6px;max-height:90px;overflow:auto;white-space:pre-wrap}
+  #fBadge:not(:empty){background:var(--bad);color:#fff;border-radius:10px;padding:0 7px;font-size:12px;margin-right:4px}
   #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;transition:.25s;pointer-events:none;z-index:20}
   #toast.on{opacity:1}
   @media (max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}
@@ -63,7 +70,7 @@
     <div class="msg" id="lmsg"></div>
   </div>
   <div id="app" class="hidden">
-    <div class="tabs"><button data-t="users" class="on">👥 المستخدمين</button><button data-t="vip">⭐ المفتوحين</button><button data-t="codes">🔑 الأكواد</button></div>
+    <div class="tabs"><button data-t="users" class="on">👥 المستخدمين</button><button data-t="vip">⭐ المفتوحين</button><button data-t="codes">🔑 الأكواد</button><button data-t="fonts">🔤 الخطوط <span id="fBadge"></span></button></div>
     <section id="users">
       <div class="stats" id="stats"></div>
       <input class="search" id="q" placeholder="🔍 دوّر بالإيميل…" dir="auto">
@@ -77,6 +84,13 @@
       </div>
       <div style="font-size:13px;color:var(--mut);margin:-4px 2px 10px">أي إيميل هنا بيتفتح مدى الحياة أول ما يسجل (أو على طول لو مسجل قبل كده). برضه 3 أجهزة بس.</div>
       <div id="vlist"></div>
+    </section>
+    <section id="fonts" class="hidden">
+      <h3 style="margin:4px 2px 8px;font-size:16px">⏳ خطوط مستنية موافقتك</h3>
+      <div id="frList"></div>
+      <h3 style="margin:18px 2px 8px;font-size:16px">✅ الخطوط المنشورة لكل المستخدمين</h3>
+      <div style="font-size:13px;color:var(--mut);margin:-4px 2px 8px">تضيف خط بنفسك من البرنامج: التواقيع والأختام ← الخطوط (وانت داخل بحساب المطور)</div>
+      <div id="fpList"></div>
     </section>
     <section id="codes" class="hidden">
       <div class="gen">
@@ -126,11 +140,11 @@ auth.onAuthStateChanged(u => {
   const ok = u && u.email === ADMIN && u.emailVerified;
   $('#login').classList.toggle('hidden', !!ok); $('#app').classList.toggle('hidden', !ok); $('#out').classList.toggle('hidden', !u);
   if (u && !ok) $('#lmsg').textContent = u.email !== ADMIN ? 'الحساب ده مش حساب المطور' : 'أكّد الإيميل الأول (افتح رسالة التأكيد في جيميل)';
-  if (ok) { loadUsers(); loadCodes(); loadVip(); }
+  if (ok) { loadUsers(); loadCodes(); loadVip(); loadFonts(); }
 });
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['users', 'vip', 'codes'].forEach(t => $('#' + t).classList.toggle('hidden', b.dataset.t !== t));
+  ['users', 'vip', 'codes', 'fonts'].forEach(t => $('#' + t).classList.toggle('hidden', b.dataset.t !== t));
 });
 
 /* ---------- المستخدمين ---------- */
@@ -226,6 +240,81 @@ $('#vGo').onclick = async () => {
     toast(us.size ? '⭐ اتفتح على طول (كان مسجل)' : '⭐ اتضاف — هيتفتح أول ما يسجل'); loadUsers(); loadVip();
   } catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
 };
+
+/* ---------- الخطوط: مراجعة ونشر ---------- */
+const FREE_RE = /open font licen[cs]e|\bOFL\b|SIL\b|scripts\.sil\.org|apache licen[cs]e|ubuntu font licen[cs]e|public domain|\bCC0\b|creative commons|freeware|free for (personal and )?commercial|GNU General Public|GPL|bitstream vera|google/i;
+const PAID_RE = /all rights reserved|licen[cs]e (is )?required|purchase|buy a licen|personal use only|non-?commercial|for evaluation|trial|monotype|linotype|adobe|microsoft|apple inc|bitstream inc|fontshop|29lt|diwan|tptq|boutros|al ?fanan|arabic type|dinamo|hoefler|fontfabric/i;
+async function inGoogleFonts(name) { try { const r = await fetch('https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name)); return r.ok; } catch (e) { return false; } }
+async function verdict(f) {
+  const txt = [f.license, f.licenseUrl, f.copyright, f.vendor, f.designer].join(' \n ');
+  if (await inGoogleFonts(f.name)) return ['g', '🟢 مجاني — موجود في Google Fonts'];
+  const free = FREE_RE.test(txt), paid = PAID_RE.test(txt);
+  if (free && !/personal use only|non-?commercial/i.test(txt)) return ['g', '🟢 غالباً مجاني — رخصة مفتوحة مكتوبة في الملف'];
+  if (paid) return ['r', '🔴 غالباً مدفوع — راجع قبل الموافقة'];
+  return ['y', '🟡 مش واضح — مفيش رخصة مكتوبة'];
+}
+async function partsOf(ref) { const ps = await ref.collection('parts').get(); const arr = ps.docs.map(d => [+d.id.split('_').pop(), d.data().d.toUint8Array()]).sort((a, b) => a[0] - b[0]).map(x => x[1]); const len = arr.reduce((a, b) => a + b.length, 0), out = new Uint8Array(len); let o = 0; arr.forEach(b => { out.set(b, o); o += b.length; }); return out; }
+function coverage(fam) {
+  const c = document.createElement('canvas').getContext('2d'); const w = (t, f) => { c.font = `40px ${f}`; return c.measureText(t).width; };
+  const t = s => ['serif', 'monospace'].some(fb => Math.abs(w(s, `"${fam}", ${fb}`) - w(s, fb)) > .5);
+  const ar = t('ابتثجحخ سلام'), en = t('abcdefgHIJK'); return ar && en ? 'both' : ar ? 'ar' : 'en';
+}
+let FREQ = [];
+async function loadFonts() {
+  try {
+    const rq = await db.collection('fontRequests').get();
+    FREQ = rq.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.at) - ms(a.at));
+    $('#fBadge').textContent = FREQ.length || '';
+    if (!FREQ.length) $('#frList').innerHTML = '<div class="empty">مفيش خطوط مستنية مراجعة</div>';
+    else {
+      $('#frList').innerHTML = FREQ.map(f => `<div class="fr" data-id="${f.id}">
+        <div class="top" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b dir="ltr" style="font-size:16px">${f.name}</b><span class="verd" id="v_${f.id}">⏳ بنفحص الرخصة…</span></div>
+        <div class="pv" id="p_${f.id}">جاري تحميل المعاينة…</div>
+        <div class="meta">من: <b dir="ltr">${f.email}</b> · ${(f.size / 1024).toFixed(0)} KB · ${fmt(ms(f.at))}${f.vendor ? ' · الشركة: <b dir="ltr">' + f.vendor + '</b>' : ''}${f.designer ? ' · المصمم: <b dir="ltr">' + f.designer + '</b>' : ''}</div>
+        ${f.copyright || f.license || f.licenseUrl ? `<div class="lic">${[f.copyright, f.license, f.licenseUrl].filter(Boolean).join('\n')}</div>` : '<div class="lic">(مفيش أي معلومات رخصة جوه الملف)</div>'}
+        <div class="acts"><button class="pri" data-a="ok">✅ وافق وانشره للكل</button><button data-a="web">🔎 دوّر على رخصته</button><button class="bad" data-a="no">✖ ارفض</button></div></div>`).join('');
+      for (const f of FREQ) {
+        verdict(f).then(([c, t]) => { const e = $('#v_' + f.id); if (e) { e.className = 'verd ' + c; e.textContent = t; } });
+        partsOf(db.collection('fontRequests').doc(f.id)).then(async u8 => {
+          f.bytes = u8; const fam = 'REQ_' + f.id; const ff = new FontFace(fam, u8.buffer); await ff.load(); document.fonts.add(ff);
+          f.col = coverage(fam); const e = $('#p_' + f.id);
+          e.style.fontFamily = `"${fam}", serif`; e.className = 'pv' + (f.col === 'en' ? ' en' : '');
+          e.textContent = f.col === 'en' ? 'The quick brown fox jumps 0123' : f.col === 'ar' ? 'أبجد هوز حطي كلمن ٠١٢٣ سعفص' : 'أبجد هوز حطي كلمن — Quick fox 123';
+        }).catch(e => { const x = $('#p_' + f.id); if (x) x.textContent = '⚠ الملف مش بيفتح كخط: ' + (e.message || e); });
+      }
+      document.querySelectorAll('.fr .acts button').forEach(b => b.onclick = () => fontAction(b.closest('.fr').dataset.id, b.dataset.a));
+    }
+    const pub = await db.collection('fonts').get();
+    const P = pub.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.addedAt) - ms(a.addedAt));
+    $('#fpList').innerHTML = P.length ? `<table><tr><th>الخط</th><th>المصدر</th><th>اتضاف</th><th></th></tr>${P.map(f => `<tr><td dir="ltr" style="text-align:left"><b>${f.name}</b></td><td>${f.source === 'google' ? 'Google Fonts' : f.from ? 'مرفوع من ' + f.from : 'ملف'}</td><td>${fmt(ms(f.addedAt))}</td><td><button class="btn" data-fd="${f.id}" style="color:var(--bad)">حذف</button></td></tr>`).join('')}</table>` : '<div class="empty">مفيش خطوط منشورة لسه</div>';
+    document.querySelectorAll('[data-fd]').forEach(b => b.onclick = async () => {
+      if (!confirm('حذف الخط من عند كل المستخدمين؟')) return;
+      const ref = db.collection('fonts').doc(b.dataset.fd); const ps = await ref.collection('parts').get(); for (const d of ps.docs) await d.ref.delete(); await ref.delete(); toast('اتحذف'); loadFonts();
+    });
+  } catch (e) { $('#frList').innerHTML = `<div class="empty">مشكلة: ${e.code || e.message}</div>`; }
+}
+async function delRequest(id) { const ref = db.collection('fontRequests').doc(id); const ps = await ref.collection('parts').get(); for (const d of ps.docs) await d.ref.delete(); await ref.delete(); }
+async function fontAction(id, a) {
+  const f = FREQ.find(x => x.id === id);
+  if (a === 'web') { window.open('https://www.google.com/search?q=' + encodeURIComponent(`"${f.name}" font license free commercial use`), '_blank'); return; }
+  try {
+    if (a === 'no') { if (!confirm(`رفض خط "${f.name}" ومسحه؟`)) return; await delRequest(id); toast('اترفض'); return loadFonts(); }
+    if (!confirm(`نشر خط "${f.name}" لكل المستخدمين؟\nاتأكد إن رخصته بتسمح بالتوزيع.`)) return;
+    if (!f.bytes) f.bytes = await partsOf(db.collection('fontRequests').doc(id));
+    const CH = 900000, u8 = f.bytes;
+    // لو فيه خط منشور بنفس الاسم (مثلاً العادي واتبعت العريض) نضيفه عليه
+    const same = (await db.collection('fonts').where('name', '==', f.name).get()).docs[0];
+    const ref = same ? same.ref : db.collection('fonts').doc(id);
+    const meta = same ? same.data() : { name: f.name, source: 'file', col: f.col || 'both', ps: f.ps || '', full: f.full || '', from: f.email, faces: [] };
+    const i = meta.faces.length; let k = 0;
+    for (let o = 0; o < u8.length; o += CH, k++) await ref.collection('parts').doc(i + '_' + k).set({ d: firebase.firestore.Blob.fromUint8Array(u8.subarray(o, o + CH)) });
+    meta.faces.push({ weight: f.bold ? 700 : 400, parts: k });
+    meta.addedAt = FV.serverTimestamp();
+    await ref.set(meta);
+    await delRequest(id);
+    toast('✅ الخط اتنشر — هيوصل لكل المستخدمين'); loadFonts();
+  } catch (e) { alert('مشكلة: ' + (e.code || e.message)); }
+}
 
 /* ---------- الأكواد ---------- */
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

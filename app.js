@@ -180,13 +180,13 @@ function sfntNames(buf) {
     const cnt = v.getUint16(off + 2), so = off + v.getUint16(off + 4), out = {};
     for (let i = 0; i < cnt; i++) {
       const r = off + 6 + i * 12, pid = v.getUint16(r), lang = v.getUint16(r + 4), nid = v.getUint16(r + 6), len = v.getUint16(r + 8), o = v.getUint16(r + 10);
-      if (![1, 4, 6, 16].includes(nid)) continue;
+      if (![0, 1, 4, 6, 8, 9, 13, 14, 16].includes(nid)) continue;
       let str = '';
       if (pid === 3 || pid === 0) { for (let j = 0; j < len; j += 2) str += String.fromCharCode(v.getUint16(so + o + j)); if (pid === 3 && lang !== 0x409 && out[nid]) continue; }
       else if (pid === 1) { for (let j = 0; j < len; j++) str += String.fromCharCode(v.getUint8(so + o + j)); if (out[nid]) continue; }
       if (str) out[nid] = str;
     }
-    return { family: out[16] || out[1], full: out[4], ps: out[6] };
+    return { family: out[16] || out[1], full: out[4], ps: out[6], copyright: out[0] || '', vendor: out[8] || '', designer: out[9] || '', license: out[13] || '', licenseUrl: out[14] || '' };
   } catch (e) { return {}; }
 }
 const cleanFontName = n => (n || '').replace(/^[A-Z]{6}\+/, '').replace(/[,-](Bold|Italic|Regular|Light|Medium|Black|Heavy|SemiBold|Book|Roman|MT|PS).*$/i, '').replace(/(PSMT|MT|PS)$/,'').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
@@ -1782,7 +1782,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.26</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.27</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
@@ -1803,7 +1803,9 @@ function openContact(pre) {
     <input class="field" id="ctName" dir="auto" placeholder="اسمك (اختياري)" style="margin-top:8px">
     <input class="field" id="ctBack" dir="auto" placeholder="إيميلك أو رقمك عشان نرد عليك (اختياري)" style="margin-top:8px">
     <div class="row"><button class="btn pri" id="ctSend" style="flex:1">إرسال</button></div>`);
-  const paint = () => { const r = $('#ctTypes', body); r.innerHTML = ''; types.forEach(([k, n]) => { const c = document.createElement('button'); c.className = 'chip' + (k === type ? ' on' : ''); c.textContent = n; c.onclick = () => { type = k; paint(); }; r.appendChild(c); }); };
+  const up = document.createElement('div'); up.style.margin = '4px 0 10px'; $('#ctTypes', body).after(up);
+  const paint = () => { const r = $('#ctTypes', body); r.innerHTML = ''; types.forEach(([k, n]) => { const c = document.createElement('button'); c.className = 'chip' + (k === type ? ' on' : ''); c.textContent = n; c.onclick = () => { type = k; paint(); }; r.appendChild(c); });
+    up.innerHTML = ''; if (type === 'خط' && window.SF && SF.db()) { fontUploadBlock(up); const p = document.createElement('div'); p.style.cssText = 'font-size:12.5px;color:var(--muted);margin-top:8px'; p.textContent = 'أو اكتب اسم الخط اللي محتاجه هنا تحت:'; up.appendChild(p); } };
   paint();
   if (pre && pre.text) $('#ctMsg', body).value = pre.text;
   if (window.LIC && LIC.user) $('#ctBack', body).value = LIC.user.email;
@@ -1901,13 +1903,65 @@ function openFontsSheet(q, onInstalled) {
   $('#ufGo', body).onclick = go; $('#ufQ', body).onkeydown = e => { if (e.key === 'Enter') go(); };
   if (q) { $('#ufQ', body).value = q; go(); }
 }
+// رفع خط من جهاز المستخدم للمراجعة (المطور بيوافق الأول)
+const FONT_POLICY = `<b>ليه لازم المطور يوافق على الخط الأول؟</b><br>
+أي خط بيتضاف للبرنامج بيوصل لكل المستخدمين. وخطوط كتير ليها حقوق ملكية، ومش مسموح توزيعها من غير رخصة.<br>
+• علشان كده <b>بنضيف الخطوط المجانية بس</b> (اللي رخصتها بتسمح بالتوزيع، زي SIL Open Font License).<br>
+• الخطوط المدفوعة ممكن <b>إحنا نشتريها</b> ونضيفها ليكم مجاناً.<br>
+• ما ينفعش أي حد يثبّت أي خط، لأن البرنامج هو اللي بيتحمل المسؤولية القانونية قدام أصحاب الخطوط.`;
+function fontUploadBlock(host) {
+  const d = document.createElement('div'); d.className = 'fup';
+  d.innerHTML = `<div class="fup-h"><b>📤 رفع خط من جهازك للمراجعة</b><button class="fup-i" title="سياسة إضافة الخطوط">i</button></div>
+    <div class="fup-pol hidden">${FONT_POLICY}</div>
+    <button class="btn pri fup-go" style="width:100%;margin-top:8px">ارفع الخط للمراجعة <small style="opacity:.85">(TTF · OTF · WOFF)</small></button>
+    <div class="fup-msg"></div>`;
+  host.appendChild(d);
+  $('.fup-i', d).onclick = () => $('.fup-pol', d).classList.toggle('hidden');
+  const msg = (t, ok) => { const m = $('.fup-msg', d); m.innerHTML = t || ''; m.style.color = ok ? '#1e8449' : '#c0392b'; };
+  $('.fup-go', d).onclick = async () => {
+    const db = SF.db(); if (!db) { msg('لازم تكون داخل بحسابك ومعاك نت'); return; }
+    const f = await pickFile('fFont'); if (!f) return;
+    const buf = await f.arrayBuffer();
+    if (buf.byteLength > 3 * 1024 * 1024) { msg('الخط أكبر من 3 ميجا'); return; }
+    const nm = sfntNames(buf);
+    // نتأكد إنه خط فعلاً
+    try { const ff = new FontFace('__chk' + Date.now(), buf); await ff.load(); } catch (e) { msg(`الملف "${f.name}" مش خط صالح`); return; }
+    const name = (nm.family || f.name.replace(/\.(ttf|otf|woff2?)$/i, '')).trim();
+    const yes = await confirmBox(`<b>وجب التنبيه</b><br>في حالة موافقة إدارة البرنامج على الخط <b dir="ltr">${name}</b>، يصبح متاحاً لجميع الأعضاء.<br>ولا تقبل الإدارة إلا <b>الخطوط المجانية فقط</b>.<br><br>هل تريد رفع الخط للمراجعة؟`, 'نعم', 'لا');
+    if (!yes) return;
+    busy(true, 'جاري رفع الخط للمراجعة…');
+    try {
+      const ref = db.collection('fontRequests').doc();
+      await ref.set({ uid: LIC.user.uid, email: LIC.user.email, name, file: f.name.slice(0, 120), size: buf.byteLength, status: 'pending',
+        bold: /bold|black|heavy/i.test((nm.full || '') + f.name) && !/semi|demi/i.test(nm.full || ''),
+        ps: nm.ps || '', full: nm.full || '', copyright: (nm.copyright || '').slice(0, 500), vendor: (nm.vendor || '').slice(0, 200), designer: (nm.designer || '').slice(0, 200),
+        license: (nm.license || '').slice(0, 1500), licenseUrl: (nm.licenseUrl || '').slice(0, 300), parts: Math.ceil(buf.byteLength / SF.CHUNK), at: firebase.firestore.FieldValue.serverTimestamp() });
+      const u8 = new Uint8Array(buf);
+      for (let o = 0, k = 0; o < u8.length; o += SF.CHUNK, k++) await ref.collection('parts').doc(String(k)).set({ d: firebase.firestore.Blob.fromUint8Array(u8.subarray(o, o + SF.CHUNK)) });
+      msg(`✅ الخط <b dir="ltr">${name}</b> اتبعت للمراجعة. لو الإدارة وافقت عليه هيظهرلك ولكل المستخدمين تلقائي.`, true);
+    } catch (e) { console.warn(e); msg('ما قدرناش نرفع الخط: ' + (e.code || e.message)); }
+    busy(false);
+  };
+  return d;
+}
+// رسالة تأكيد صغيرة (نعم / لا)
+function confirmBox(html, yes = 'نعم', no = 'لا') {
+  return new Promise(res => {
+    const w = document.createElement('div'); w.className = 'cbox-w';
+    w.innerHTML = `<div class="cbox"><div class="cbox-t">${html}</div><div class="cbox-b"><button class="btn pri" data-r="1">${yes}</button><button class="btn" data-r="0">${no}</button></div></div>`;
+    document.body.appendChild(w);
+    w.onclick = e => { const b = e.target.closest('[data-r]'); if (!b && e.target !== w) return; w.remove(); res(!!(b && b.dataset.r === '1')); };
+  });
+}
 // شاشة الخطوط للمستخدم العادي: يشوف الخطوط ويطلب خط جديد
 function openFontsUser(q) {
   const body = openSheet(`<div class="sh-head"><h3>الخطوط</h3></div>
-    <p style="margin:0 0 8px;font-size:13.5px;color:var(--muted);line-height:1.7">محتاج خط مش موجود؟ ابعتلنا اسمه، وبعد ما نراجعه ونتأكد من رخصته هنضيفه للبرنامج ويوصلك تلقائي.</p>
-    <button class="btn pri" id="ufReq" style="width:100%">✉ اطلب إضافة خط</button>
+    <div id="ufUp"></div>
+    <p style="margin:12px 0 6px;font-size:13.5px;color:var(--muted);line-height:1.7">مش معاك ملف الخط؟ ابعتلنا اسمه، وبعد ما نراجعه ونتأكد من رخصته هنضيفه للبرنامج ويوصلك تلقائي.</p>
+    <button class="btn" id="ufReq" style="width:100%">✉ اطلب إضافة خط بالاسم</button>
     <div class="sec-title">🔤 الخطوط المضافة للبرنامج</div>
     <div id="ufList"></div>`);
+  fontUploadBlock($('#ufUp', body));
   const l = $('#ufList', body);
   l.innerHTML = UF.list.length ? UF.list.map(r => `<div class="uf-row"><div class="uf-n"><b style="font-family:'${r.family}','Cairo'">${r.name}</b><span style="font-family:'${r.family}','Cairo'">${r.col === 'en' ? 'The quick brown fox 123' : 'أبجد هوز حطي كلمن 123'}</span></div></div>`).join('')
     : '<div style="color:var(--muted);font-size:13.5px;padding:8px 2px">مفيش خطوط إضافية لسه</div>';
@@ -1954,7 +2008,9 @@ const SF = {
       const remote = new Map(snap.docs.map(d => [d.id, d.data()]));
       let added = 0;
       for (const [id, m] of remote) {
-        if (UF.list.find(r => r.id === id)) continue;
+        const loc = UF.list.find(r => r.id === id);
+        if (loc && (m.source === 'google' || loc.faces.length >= (m.faces || []).length)) continue;
+        if (loc) await UF.remove(id);   // اتضافله وزن جديد (عريض مثلاً)
         try {
           let faces;
           if (m.source === 'google') faces = await googleFaces(m.name);
