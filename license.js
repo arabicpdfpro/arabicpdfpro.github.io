@@ -230,7 +230,7 @@
     else bar.innerHTML = `<span>✅ <b>البرنامج مفعّل</b>${r.until !== Infinity ? ' لحد ' + new Date(r.until).toLocaleDateString('ar-EG') : ''}</span>${LIC.user.email === ADMIN ? '<span class="sp"></span><button id="licAdmin">لوحة التحكم</button>' : ''}`;
     bar.className = r.state;
     const a = document.getElementById('licAct'); if (a) a.onclick = activateSheet;
-    const ad = document.getElementById('licAdmin'); if (ad) ad.onclick = () => { location.href = 'admin.html'; };
+    const ad = document.getElementById('licAdmin'); if (ad) ad.onclick = () => { if (/github\.io$/.test(location.hostname)) location.href = 'admin.html'; else window.open('https://arabicpdfpro.github.io/admin.html', '_blank'); };
     const foot = document.querySelector('.home-foot'); let acc = document.querySelector('.lic-acc');
     if (!acc) { acc = document.createElement('div'); acc.className = 'lic-acc'; foot.appendChild(acc); }
     acc.innerHTML = `${LIC.user.email}<button id="licOut">خروج</button>`;
