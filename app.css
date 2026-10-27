@@ -350,3 +350,5 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 .obj .handle.tc-tl,.obj .handle.tc-br{cursor:nwse-resize}.obj .handle.tc-tr,.obj .handle.tc-bl{cursor:nesw-resize}
 .obj .handle.tstem{width:13px;height:13px;left:50%;bottom:-34px;margin-left:-8px;border-radius:50%;background:#1565c0;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);cursor:ns-resize}
 .obj .handle.tstem::before{content:'';position:absolute;left:50%;bottom:13px;width:1.5px;height:20px;margin-left:-.75px;background:var(--sel)}
+
+.kb-proxy{position:fixed;left:0;top:40%;width:2px;height:2px;opacity:0;border:0;padding:0;font-size:16px;pointer-events:none;z-index:-1}

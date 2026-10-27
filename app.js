@@ -197,7 +197,7 @@ async function openDocument(bytes, name) {
   try {
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
     if (S.pdf) S.pdf.destroy();
-    Object.assign(S, { bytes, pdf, name: name || 'مستند.pdf', annots: {}, assets: {}, imgs: {}, undo: [], redo: [], dirty: false, sel: null, zoom: 1, textCache: {}, cur: 0 });
+    Object.assign(S, { bytes, pdf, name: name || 'مستند.pdf', annots: {}, assets: {}, imgs: {}, undo: [], redo: [], dirty: false, sel: null, zoom: 1, textCache: {}, bands: {}, cur: 0 });
     S.pageIds = Array.from({ length: pdf.numPages }, uid);
     showScreen('editor');
     $('#docTitle').textContent = S.name;
@@ -215,7 +215,7 @@ async function reloadBytes(bytes, keepScroll = true) {
   const st = $('#viewer').scrollTop;
   const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
   if (S.pdf) S.pdf.destroy();
-  S.pdf = pdf; S.bytes = bytes; S.textCache = {};
+  S.pdf = pdf; S.bytes = bytes; S.textCache = {}; S.bands = {};
   await buildPages();
   if (keepScroll) $('#viewer').scrollTop = st;
 }
@@ -465,6 +465,77 @@ function keepInPage(o, p) {
   const b = bbox(o);
   if (b.w <= p.w) o.x = clamp(o.x, b.w <= p.w - 2 * EDGE ? EDGE : 0, Math.max(0, p.w - b.w - (b.w <= p.w - 2 * EDGE ? EDGE : 0)));
   if (b.h <= p.h) o.y = clamp(o.y, 0, Math.max(0, p.h - b.h));
+}
+/* ---------- حدود الهيدر والفوتر في الصفحة (عشان الكلام يقلب على صفحة جديدة لما يوصل الفوتر) ---------- */
+S.bands = {};
+// بيرسم الصفحة بالأبيض والأسود ويدور على آخر حتة حبر تحت (الفوتر) وأول حتة فوق (الهيدر) مفصولين بمسافة فاضية عن باقي الصفحة
+async function pageBands(p) {
+  const key = p.id + ':' + Math.round(p.w) + 'x' + Math.round(p.h);
+  if (S.bands[key]) return S.bands[key];
+  let top = 0, bot = p.h, pdfH = false, pdfF = false;
+  try {
+    const pg = await S.pdf.getPage(p.index + 1), k = 500 / p.w, vp = pg.getViewport({ scale: k });
+    const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+    const W = c.width, H = c.height, d = ctx.getImageData(0, 0, W, H).data, min = Math.max(1, W * 0.002);
+    const ink = new Uint8Array(H);
+    for (let y = 0; y < H; y++) { let n = 0; for (let x = 0, i = y * W * 4; x < W; x++, i += 4) if (d[i] < 215 || d[i + 1] < 215 || d[i + 2] < 215) n++; ink[y] = n >= min ? 1 : 0; }
+    const gap = Math.round(10 * k), zone = 0.25;
+    // الفوتر: أول حبر من تحت، ونطلع لفوق لحد مسافة فاضية
+    let y = H - 1; while (y >= 0 && !ink[y]) y--;
+    if (y >= H * (1 - zone)) {
+      let t = y, blank = 0;
+      for (let yy = y; yy >= 0; yy--) { if (ink[yy]) { t = yy; blank = 0; } else if (++blank >= gap) break; }
+      if (t >= H * (1 - zone)) { bot = t / k; pdfF = true; }
+    }
+    // الهيدر: أول حبر من فوق، ونكمّل لتحت لحد مسافة فاضية
+    y = 0; while (y < H && !ink[y]) y++;
+    if (y <= H * zone) {
+      let b = y, blank = 0;
+      for (let yy = y; yy < H; yy++) { if (ink[yy]) { b = yy; blank = 0; } else if (++blank >= gap) break; }
+      if (b <= H * zone) { top = (b + 1) / k; pdfH = true; }
+    }
+  } catch (e) { console.warn(e); }
+  return (S.bands[key] = { top, bot, pdfH, pdfF });
+}
+// الحدود النهائية: الهيدر/الفوتر المضافين من البرنامج ليهم الأولوية على اللي في الملف
+function bandsNow(p) {
+  const key = p.id + ':' + Math.round(p.w) + 'x' + Math.round(p.h), b = S.bands[key] || { top: 0, bot: p.h };
+  const a = annotsOf(p.id), H = a.filter(o => o.type === 'image' && o.kind === 'header'), F = a.filter(o => o.type === 'image' && o.kind === 'footer');
+  return {
+    top: H.length ? Math.max(...H.map(o => o.y + o.h)) : b.top,
+    bot: F.length ? Math.min(...F.map(o => o.y)) : b.bot,
+    H, F, pdfH: !H.length && b.pdfH, pdfF: !F.length && b.pdfF, rawTop: b.top, rawBot: b.bot,
+  };
+}
+// قص شريط من الصفحة كصورة بجودة عالية (للهيدر/الفوتر اللي جوه الملف نفسه)
+async function cropBand(p, y1, y2) {
+  const pg = await S.pdf.getPage(p.index + 1), k = Math.min(4, 2400 / p.w), vp = pg.getViewport({ scale: k });
+  const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  const o = document.createElement('canvas'), h = Math.max(1, Math.round((y2 - y1) * k));
+  o.width = c.width; o.height = h; o.getContext('2d').drawImage(c, 0, Math.round(y1 * k), c.width, h, 0, 0, c.width, h);
+  return o.toDataURL('image/png');
+}
+// يضيف صفحة جديدة بعد الصفحة p بنفس المقاس ونفس الهيدر والفوتر، ويرجعها
+async function addContinuationPage(p) {
+  await pageBands(p);
+  const bd = bandsNow(p), pad = 3;
+  // نجهز صور الهيدر/الفوتر قبل ما نغيّر الملف
+  const add = [];
+  bd.H.concat(bd.F).forEach(o => add.push({ ...JSON.parse(JSON.stringify(o)), id: uid() }));
+  if (bd.pdfH && bd.rawTop > 0) { const aid = uid(), y2 = Math.min(p.h, bd.rawTop + pad); S.assets[aid] = await cropBand(p, 0, y2); add.push({ type: 'image', id: uid(), asset: aid, x: 0, y: 0, w: p.w, h: y2, opacity: 1, kind: 'header' }); }
+  if (bd.pdfF && bd.rawBot < p.h) { const aid = uid(), y1 = Math.max(0, bd.rawBot - pad); S.assets[aid] = await cropBand(p, y1, p.h); add.push({ type: 'image', id: uid(), asset: aid, x: 0, y: y1, w: p.w, h: p.h - y1, opacity: 1, kind: 'footer' }); }
+  const doc = await loadLib(), pos = p.index + 1, nid = uid();
+  doc.insertPage(pos, [p.w, p.h]);
+  const bytes = await doc.save();
+  S.pageIds.splice(pos, 0, nid); S.annots[nid] = add; S.dirty = true;
+  await reloadBytes(bytes, true);
+  const np = S.pages.find(q => q.id === nid);
+  S.bands[nid + ':' + Math.round(np.w) + 'x' + Math.round(np.h)] = { top: 0, bot: np.h };
+  return np;
 }
 function makeObjEl(p, o) {
   if (o.type === 'text' && S.editingId !== o.id) keepInPage(o, p);
@@ -749,6 +820,7 @@ function bindOverlay(p) {
   });
   // الضغطة المطولة على أندرويد ممكن تيجي كـ contextmenu
   ov.addEventListener('contextmenu', e => {
+    if (e.target.closest && e.target.closest('textarea,input')) return;   // سيب قائمة النسخ واللصق بتاعة الموبايل تشتغل جوه الكتابة
     e.preventDefault();
     if (e.target !== ov || S.tool !== 'select') return;
     if ($('#tapmenu') && !$('#tapmenu').classList.contains('txbar')) return;   // القائمة ظاهرة بالفعل من الضغطة المطولة
@@ -949,6 +1021,7 @@ function showTapMenu(p, x, y, cx, cy) {
     ['blank', 'مربع إخفاء', () => addWhiteBox(p, x - 60, y - 14, 120, 28)],
   ];
   if (S.clip) items.push(['copy', 'لصق', () => pasteAt(p, x, y)]);
+  items.push(['copy', 'لصق نص', () => pasteClipboardText(p, x, y)]);
   items.forEach(([ic, t, fn]) => { const b = document.createElement('button'); b.innerHTML = icon(ic) + `<span>${t}</span>`; b.onclick = ev => { ev.stopPropagation(); hideTapMenu(); fn(); }; m.appendChild(b); });
   document.body.appendChild(m);
   const r = { width: m.offsetWidth, height: m.offsetHeight }, W = window.innerWidth, H = window.innerHeight;
@@ -1086,6 +1159,29 @@ function editPdfLine(p, line, R) {
   openTextSheet(o, p);
 }
 
+// تنضيف النص الملصوق: سطور موحدة، من غير رموز تحكم مخفية
+function cleanPasted(t) {
+  return String(t).replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/\t/g, ' ').replace(/\u00a0/g, ' ')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufeff\u200b]/g, '').replace(/[\u202a-\u202e\u2066-\u2069]/g, '');
+}
+function insertAtCaret(ta, t) {
+  const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+  ta.value = ta.value.slice(0, a) + t + ta.value.slice(b);
+  const c = a + t.length; try { ta.setSelectionRange(c, c); } catch (e) { }
+  ta.dispatchEvent(new Event('input'));
+}
+// لصق نص منسوخ من أي برنامج على الصفحة كنص جديد
+async function pasteClipboardText(p, x, y, given) {
+  let t = given;
+  if (t == null) {
+    try { t = await navigator.clipboard.readText(); } catch (e) { t = null; }
+    if (t == null) { openTextSheet(null, p, x, y); toast('اضغط مطولاً جوه مربع الكتابة واختار لصق'); return; }
+  }
+  t = cleanPasted(t).replace(/\s+$/, '');
+  if (!t.trim()) { toast('مافيش نص منسوخ'); return; }
+  openTextSheet(null, p, x, y);
+  const ta = $('#tTxt'); if (ta) { ta.value = t; ta.dispatchEvent(new Event('input')); }
+}
 function pasteAt(p, x, y) {
   const c = JSON.parse(S.clip.json); c.id = uid();
   if (S.clip.asset) S.assets[c.asset] = S.clip.asset;
@@ -1094,9 +1190,11 @@ function pasteAt(p, x, y) {
 }
 
 /* ---------------- ورقة النص ---------------- */
-function openTextSheet(obj, p, x, y) {
+function openTextSheet(obj, p, x, y, pre) {
   const isNew = !obj;
   const o = isNew ? { type: 'text', id: uid(), x: x || 40, y: y || 40, ...S.text, text: '' } : obj;
+  if (isNew && pre && pre.ww > 0) o.ww = pre.ww;
+  if (S.pdf) pageBands(p);   // نجهز مكان الهيدر/الفوتر من دلوقتي
   let pushed = false;
   const ensureUndo = () => { if (!isNew && !pushed) { pushUndo(); pushed = true; } };
   const body = openSheet(`
@@ -1172,7 +1270,7 @@ function openTextSheet(obj, p, x, y) {
     posTA();
     const pn = $('#txPanel'); if (pn && pn.dataset.kind === 'font') $$('.fl-row', pn).forEach(r => r.classList.toggle('on', r.dataset.f === o.font));
   };
-  const live = () => { if (!isNew) limitW(); fitBox(o); refresh(); if (!isNew) { const pp = S.pages.find(q => q.id === S.sel?.pid) || p; renderOverlay(pp); } };
+  const live = () => { if (!isNew) limitW(); fitBox(o); refresh(); if (!isNew) { const pp = S.pages.find(q => q.id === S.sel?.pid) || p; renderOverlay(pp); } if (typeof overflow === 'function') overflow(); };
   // ---- لوحة منبثقة فوق الشريط (خطوط / ألوان)
   const panel = kind => {
     const old = $('#txPanel'); if (old) { const k = old.dataset.kind; old.remove(); if (k === kind) return null; }
@@ -1234,7 +1332,53 @@ function openTextSheet(obj, p, x, y) {
     if (!isNew) { if (o.bw != null) o.bw = textMetrics({ ...o, bw: undefined }).nw; if (o.bh != null && o.base == null) o.bh = textMetrics({ ...o, bh: undefined }).nh; }
     live();
   };
-  ta.oninput = () => { if (!isNew) { ensureUndo(); o.text = ta.value; live(); } else posTA(); };
+  ta.oninput = () => { if (!isNew) ensureUndo(); if (overflow()) return; if (!isNew) { o.text = ta.value; live(); } else posTA(); };
+  // اللصق من أي برنامج تاني يدخل كنص عادي على طول (عربي أو إنجليزي)
+  ta.addEventListener('paste', e => {
+    const cd = e.clipboardData || window.clipboardData; if (!cd) return;
+    let t = cd.getData('text/plain') || cd.getData('text') || '';
+    if (!t && cd.getData('text/html')) { const d = document.createElement('div'); d.innerHTML = cd.getData('text/html'); t = d.innerText || d.textContent || ''; }
+    e.preventDefault(); if (!t) return;
+    insertAtCaret(ta, cleanPasted(t));
+  });
+  // لما الكلام يوصل للفوتر (أو آخر الصفحة) يقلب على صفحة جديدة بنفس الهيدر والفوتر
+  let moving = false;
+  function overflow() {
+    if (moving || !S.pdf || !$('#tTxt')) return false;
+    const bd = bandsNow(p), limit = Math.min(bd.bot, p.h) - 2;
+    const tmp = { ...o, text: ta.value || ' ' }; if (isNew) { delete tmp.bw; delete tmp.bh; }
+    const m = textMetrics(tmp);
+    if (o.y + m.h <= limit + 0.5 || o.y >= limit || !ta.value.trim()) return false;
+    const by0 = o.base != null ? o.y + o.base : o.y + (m.h - m.nh) / 2 + m.padY + m.asc;
+    let k = 0; while (k < m.lines.length && by0 + m.lh * k + m.des + m.padY <= limit) k++;
+    if (k >= m.lines.length) return false;
+    // نحدد مكان القطع في النص الأصلي
+    const txt = ta.value; let pos = 0;
+    for (let i = 0; i < k; i++) { const l = m.lines[i]; if (l) { const j = txt.indexOf(l, pos); if (j >= 0) pos = j + l.length; } else { const j = txt.indexOf('\n', pos); if (j >= 0) pos = j; } }
+    const head = txt.slice(0, pos).replace(/\s+$/, ''), tail = txt.slice(pos).replace(/^[ \t]*\n?/, '');
+    moving = true;
+    // نخلي الكيبورد مفتوح وإحنا بنعمل الصفحة الجديدة
+    const px = document.createElement('textarea'); px.className = 'kb-proxy'; px.setAttribute('dir', 'auto'); document.body.appendChild(px);
+    try { px.focus({ preventScroll: true }); } catch (e) { px.focus(); }
+    const b0 = bbox({ ...o, text: head || ' ' }), al = o.align || 'right', ww = o.ww;
+    const ax = al === 'left' ? o.x : al === 'center' ? o.x + b0.w / 2 : o.x + b0.w;
+    ta.value = head; if (!isNew) o.text = head || '';
+    const pn = $('#txPanel'); if (pn) pn.remove();
+    closeSheet();
+    busy(true, 'صفحة جديدة…');
+    addContinuationPage(p).then(np => {
+      busy(false);
+      const nb = bandsNow(np), gap = Math.max(14, S.text.size * 0.8);
+      const m0 = textMetrics({ ...S.text, text: 'x' });
+      const y = (nb.top > 0 ? nb.top + gap : Math.max(36, p.h - limit)) + m0.nh / 2;
+      const v = $('#viewer'); v.scrollTop = Math.max(0, np.el.offsetTop * (S.pz || 1) - 10);
+      openTextSheet(null, np, ax, y, { ww });
+      const nt = $('#tTxt'); if (nt) { nt.value = tail + px.value; nt.focus(); nt.setSelectionRange(nt.value.length, nt.value.length); nt.dispatchEvent(new Event('input')); }
+      setTimeout(() => px.remove(), 400);
+      toast('الكلام كمّل في صفحة جديدة');
+    }).catch(e => { busy(false); px.remove(); console.error(e); toast('تعذر إضافة صفحة جديدة'); });
+    return true;
+  }
   let done = false;
   function commit() {
     if (done) return; done = true;
@@ -1919,7 +2063,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.30</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.31</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
@@ -2608,7 +2752,26 @@ async function imagesToPdf() {
 
 /* ================= اختصارات الكمبيوتر ================= */
 window.isDirty = () => !!S.dirty && curScreen() !== 'home';
+const CLIP_MARK = '\u2063APDF-OBJ\u2063';
 function bindDesktop() {
+  // Ctrl+V بنص منسوخ من برنامج تاني = نص جديد على الصفحة
+  document.addEventListener('paste', e => {
+    const a = document.activeElement; if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+    if (curScreen() !== 'editor' || !S.pdf) return;
+    const t = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    const p = visiblePage(), v = $('#viewer'), sc = scale(), y = clamp((v.scrollTop + v.clientHeight / 2 - p.el.offsetTop) / sc, 20, p.h - 20);
+    if (S.clip && (t === CLIP_MARK || !t.trim())) { e.preventDefault(); pasteAt(p, p.w / 2, y); return; }   // عنصر منسوخ من جوه البرنامج
+    if (!t.trim() || t === CLIP_MARK) return;
+    e.preventDefault();
+    pasteClipboardText(p, p.w / 2, y, t);
+  });
+  // Ctrl+C على عنصر محدد: نعلّم الحافظة عشان Ctrl+V يلصق العنصر مش نص قديم
+  document.addEventListener('copy', e => {
+    const a = document.activeElement; if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+    if (curScreen() !== 'editor' || !S.sel || !e.clipboardData) return;
+    const o = selObj(); if (o && o.type === 'text') e.clipboardData.setData('text/plain', o.text); else e.clipboardData.setData('text/plain', CLIP_MARK);
+    e.preventDefault();
+  });
   const typing = () => { const a = document.activeElement; return a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.tagName === 'SELECT'); };
   document.addEventListener('keydown', e => {
     const ed = curScreen() === 'editor', k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
@@ -2620,7 +2783,6 @@ function bindDesktop() {
     else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
     else if (mod && k === 'f') { e.preventDefault(); openSearch(); }
     else if (mod && k === 'c' && S.sel) { const o = selObj(); S.clip = { json: JSON.stringify(o), asset: o.asset ? S.assets[o.asset] : null }; toast('تم النسخ'); }
-    else if (mod && k === 'v' && S.clip) { const p = visiblePage(), v = $('#viewer'), sc = scale(); pasteAt(p, p.w / 2, clamp((v.scrollTop + v.clientHeight / 2 - p.el.offsetTop) / sc, 20, p.h - 20)); }
     else if (mod && k === 'd' && S.sel) { e.preventDefault(); duplicateSel(); }
     else if ((e.key === 'Delete' || e.key === 'Backspace') && S.sel) { e.preventDefault(); deleteSel(); }
     else if (e.key === 'Escape') { if ($('#tapmenu')) hideTapMenu(); else if (!closeSheet()) { if (!$('#searchbar').classList.contains('hidden')) closeSearch(); else if (S.sel) deselect(); else if (S.tool !== 'select') setTool('select'); } }
