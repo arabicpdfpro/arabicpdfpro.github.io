@@ -198,6 +198,7 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 .tx-b{width:34px;height:36px;border:1px solid var(--line);border-radius:10px;font-weight:800;font-size:15px;display:grid;place-items:center;flex:none;color:var(--ink)}
 .tx-b.on{background:var(--bar);color:#fff;border-color:var(--bar)}
 .tx-b .ic{width:18px;height:18px}
+.tx-ln{width:40px;display:flex;gap:2px;align-items:center;justify-content:center;font-size:13px}.tx-ln .lnN{font-size:12px}
 .tx-col{position:relative;width:44px;height:36px;flex:none}
 .tx-col span{position:absolute;top:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #c8d2d2}
 .tx-col .d1{right:2px;z-index:1}
@@ -311,7 +312,7 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 
 .inline-box{position:absolute;z-index:3;border:1.2px dashed var(--sel);box-sizing:border-box;pointer-events:none;border-radius:2px}
 .obj.editing .handle,.obj.editing{outline:none!important;box-shadow:none!important}.obj.editing .handle{display:none}
-.inline-ta{position:absolute;z-index:4;border:0;border-radius:0;outline:none;resize:none;overflow:hidden;white-space:pre;margin:0;box-sizing:border-box;
+.inline-ta{position:absolute;z-index:4;border:0;border-radius:0;outline:none;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;margin:0;box-sizing:border-box;
   -webkit-user-select:text;user-select:text;touch-action:auto;caret-color:var(--sel)}
 
 .contact-btn{margin-top:10px;border:1.5px solid var(--bar2);color:var(--bar2);border-radius:20px;padding:7px 16px;font-size:13.5px;background:#fff;direction:rtl}

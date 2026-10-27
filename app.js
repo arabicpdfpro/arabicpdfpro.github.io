@@ -323,10 +323,28 @@ function fitBox(o) {
   // الارتفاع يزيد بس لو فيه سطور زيادة — عشان المربع ما يغطيش السطر اللي فوق واللي تحت
   if (o.bh != null && m.lines.length > 1 && m.nh > o.bh + 0.01) { o.y -= (m.nh - o.bh) / 2; o.bh = m.nh; }
 }
+// يقسم فقرة على سطور عرض كل سطر <= ww (بالكلمات، وبالحروف لو كلمة واحدة أطول من السطر). لازم mctx.font يكون متظبط قبلها
+function wrapPara(para, ww) {
+  const W = t => mctx.measureText(t).width;
+  if (!para.trim() || W(para) <= ww) return [para];
+  const out = []; let cur = '';
+  para.split(/( +)/).forEach(t => {
+    if (!t) return;
+    if (/^ +$/.test(t)) { cur += t; return; }
+    if (cur.trim() && W(cur + t) > ww) { out.push(cur.replace(/ +$/, '')); cur = ''; }
+    if (W(cur + t) <= ww) { cur += t; return; }
+    Array.from(t).forEach(ch => { if (cur.trim() && W(cur + ch) > ww) { out.push(cur); cur = ch; } else cur += ch; });
+  });
+  out.push(cur);
+  return out;
+}
 function textMetrics(o) {
   const ink = inkOf(o);
   mctx.font = fontStr(o, o.size);
-  const lines = (o.text || ' ').split('\n');
+  const paras = (o.text || ' ').split('\n');
+  // لف الكلام تلقائياً على أكتر من سطر لو عدّى العرض المسموح (o.ww) — عشان مايطلعش بره الصفحة
+  let lines = paras, wrapped = false;
+  if (o.ww > 0) { lines = []; paras.forEach(pa => { const r = wrapPara(pa, o.ww); if (r.length > 1) wrapped = true; lines.push(...r); }); }
   const padX = o.size * 0.06, padY = Math.max(0.5, o.size * 0.03);
   // الصندوق على قد حبر الحروف المكتوبة فعلاً (مش أطول حرف في الخط)
   let asc = 0, des = 0, w = 0, real = false;
@@ -339,7 +357,7 @@ function textMetrics(o) {
   if (o.underline) des = Math.max(des, o.size * 0.17);
   const lh = lineH(o);
   const nw = Math.max(w + padX * 2, o.size * 0.5), nh = asc + des + (lines.length - 1) * lh + padY * 2;
-  return { lines, pad: padX, padX, padY, asc, des, lh, ink, nw, nh, w: o.bw != null ? Math.max(o.bw, 1) : nw, h: o.bh != null ? Math.max(o.bh, 1) : nh };
+  return { lines, wrapped, pad: padX, padX, padY, asc, des, lh, ink, nw, nh, w: o.bw != null ? Math.max(o.bw, 1) : nw, h: o.bh != null ? Math.max(o.bh, 1) : nh };
 }
 function bbox(o) {
   switch (o.type) {
@@ -561,7 +579,7 @@ function bindResize(p, o, el, h) {
       if (Math.abs(nw - W0) < 1 && Math.abs(nh - H0) < 1) return;
       pushUndo();
       const f = nw / W0, right = b.x + b.w;
-      if (o.type === 'text') { const f2 = clamp(o.size * f, 1, 400) / o.size; o.size *= f2; if (o.bw != null) o.bw *= f2; if (o.bh != null) o.bh *= f2; if (o.base != null) o.base *= f2; const nb = bbox(o); o.x = right - nb.w; o.y = b.y; }
+      if (o.type === 'text') { const f2 = clamp(o.size * f, 1, 400) / o.size; o.size *= f2; if (o.ww != null) o.ww *= f2; if (o.bw != null) o.bw *= f2; if (o.bh != null) o.bh *= f2; if (o.base != null) o.base *= f2; const nb = bbox(o); o.x = right - nb.w; o.y = b.y; }
       else if (o.type === 'image') { o.w = nw / s; o.h = nh / s; o.x = right - o.w; }
       else if (o.type === 'ink') { o.pts = o.pts.map(([x, y]) => [right - (right - x) * f, b.y + (y - b.y) * f]); o.width *= f; }
       else if (o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow')) { o.w *= f; o.h *= nh / H0; }
@@ -598,7 +616,7 @@ function bindEdge(p, o, el, h, ax) {
       const right = b.x + b.w;
       if (prop) {
         const f = clamp(o.size * nw / W0, 1, 400) / o.size;
-        o.size *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f;
+        o.size *= f; if (o.ww != null) o.ww *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f;
         const nb = bbox(o); o.x = right - nb.w; o.y = b.y;
       } else if (o.type === 'text') {
         if (o.bh == null) o.bh = b.h; if (o.bw == null) o.bw = b.w;
@@ -1006,6 +1024,7 @@ function openTextSheet(obj, p, x, y) {
       <button class="tx-b" id="tBold">B</button>
       <button class="tx-b" id="tUnder" style="text-decoration:underline">U</button>
       <button class="tx-b" id="tAlign"></button>
+      <button class="tx-b tx-ln" id="tLines" title="عدد السطور"></button>
       <button class="tx-col" id="tColBtn"><span class="d1"></span><span class="d2"></span></button>
       <button class="tx-done" id="tDone">تم</button>
     </div>`, () => commit());
@@ -1020,7 +1039,19 @@ function openTextSheet(obj, p, x, y) {
   // إطار المعاينة على قد الكلام بالظبط (نفس الصندوق اللي هيتحفظ)
   const box = document.createElement('div'); box.className = 'inline-box';
   p.el.querySelector('.overlay').appendChild(box);
+  // أقصى عرض ينفع الكلام ياخده من غير ما يطلع بره الصفحة (حسب مكان الكتابة والمحاذاة)
+  const EDGE = 3;
+  const availW = () => {
+    const pad = o.size * 0.06 * 2;
+    let al, L, R;
+    if (isNew) { al = anchor.align; L = R = anchor.x; }
+    else { const w = textMetrics({ ...o, text: ta.value || ' ' }).w; al = o.align; L = o.x; R = o.x + w; }
+    const w = al === 'left' ? p.w - L - EDGE : al === 'center' ? 2 * Math.min((L + R) / 2, p.w - (L + R) / 2) - 2 * EDGE : R - EDGE;
+    return Math.max(o.size * 2, Math.min(w, p.w - 2 * EDGE) - pad);
+  };
+  const limitW = () => { const a = availW(); if (!(o.ww > 0) || o.ww > a) o.ww = a; };
   const posTA = () => {
+    limitW();
     const s = scale(), tmp = { ...o, text: ta.value || ' ' }; if (isNew) { delete tmp.bw; delete tmp.bh; }
     const m = textMetrics(tmp);
     const bw = isNew ? Math.max(m.nw, o.size * 0.8) : m.w, bh = m.h;
@@ -1030,12 +1061,17 @@ function openTextSheet(obj, p, x, y) {
     // نحط سطر الكتابة بحيث خط الكتابة (baseline) ييجي في نفس مكانه في الصندوق
     const L = m.lh, base0 = o.base != null ? o.y + o.base : o.y + (bh - m.nh) / 2 + m.padY + m.asc;
     const fa = m.ink.fa * o.size, fd = m.ink.fd * o.size, off = (L - fa - fd) / 2 + fa;
-    const extra = o.size * 0.3, n = m.lines.length;
-    Object.assign(ta.style, { left: (x - (o.align === 'left' ? 0 : o.align === 'center' ? extra / 2 : extra)) * s + 'px', top: (base0 - off) * s + 'px', width: (bw + extra) * s + 'px', height: (n * L) * s + 'px',
+    const n = m.lines.length;
+    // لو الكلام اتلف على سطور: عرض مربع الكتابة = نفس عرض اللف بالظبط عشان السطور تتقسم زي ما هتتحفظ
+    const taW = m.wrapped ? o.ww + m.padX * 2 + 0.4 : bw + o.size * 0.3;
+    const taL = o.align === 'left' ? x : o.align === 'center' ? x + bw / 2 - taW / 2 : x + bw - taW;
+    Object.assign(ta.style, { left: taL * s + 'px', top: (base0 - off) * s + 'px', width: taW * s + 'px', height: (n * L) * s + 'px',
       fontSize: o.size * s + 'px', lineHeight: L * s + 'px',
       padding: `0 ${m.padX * s}px`,
       fontFamily: `"${o.font}", "Cairo"`, fontWeight: o.bold ? 700 : 400, color: o.color, textAlign: o.align,
       background: 'transparent', opacity: o.opacity == null ? 1 : o.opacity });
+    if (ta.scrollHeight > ta.clientHeight + 1) ta.style.height = ta.scrollHeight + 'px';
+    const lb = $('#tLines', body); if (lb) lb.innerHTML = `<span class="lnI">☰</span><span class="lnN">${n}</span>`;
   };
   // ضغطة بره = تم
   const outside = e => { if (e.target === ta || e.target.closest('#sheet') || e.target.closest('#txPanel')) return; e.stopPropagation(); e.preventDefault(); const pn = $('#txPanel'); if (pn) pn.remove(); closeSheet(); };
@@ -1055,7 +1091,7 @@ function openTextSheet(obj, p, x, y) {
     posTA();
     const pn = $('#txPanel'); if (pn && pn.dataset.kind === 'font') $$('.fl-row', pn).forEach(r => r.classList.toggle('on', r.dataset.f === o.font));
   };
-  const live = () => { fitBox(o); refresh(); if (!isNew) { const pp = S.pages.find(q => q.id === S.sel?.pid) || p; renderOverlay(pp); } };
+  const live = () => { if (!isNew) limitW(); fitBox(o); refresh(); if (!isNew) { const pp = S.pages.find(q => q.id === S.sel?.pid) || p; renderOverlay(pp); } };
   // ---- لوحة منبثقة فوق الشريط (خطوط / ألوان)
   const panel = kind => {
     const old = $('#txPanel'); if (old) { const k = old.dataset.kind; old.remove(); if (k === kind) return null; }
@@ -1090,13 +1126,33 @@ function openTextSheet(obj, p, x, y) {
     $('#cpO', pn).oninput = e => { ensureUndo(); o.opacity = +e.target.value; $('#cpOV', pn).textContent = Math.round(o.opacity * 100) + '%'; live(); };
     paint();
   };
-  const stepSize = d => { ensureUndo(); const st = o.size < 12 ? 0.5 : 1; const ns = clamp(Math.round((o.size + d * st) / st) * st, 1, 400); const f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); };
+  const stepSize = d => { ensureUndo(); const st = o.size < 12 ? 0.5 : 1; const ns = clamp(Math.round((o.size + d * st) / st) * st, 1, 400); const f = ns / o.size; if (o.ww != null) o.ww *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); };
   $('#tMinus', body).onclick = () => stepSize(-1);
   $('#tPlus', body).onclick = () => stepSize(1);
-  $('#tSize', body).onclick = () => { const v = prompt('حجم الخط', Math.round(o.size)); if (v && +v > 0) { ensureUndo(); const ns = clamp(+v, 1, 400), f = ns / o.size; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); } };
+  $('#tSize', body).onclick = () => { const v = prompt('حجم الخط', Math.round(o.size)); if (v && +v > 0) { ensureUndo(); const ns = clamp(+v, 1, 400), f = ns / o.size; if (o.ww != null) o.ww *= f; if (o.bw != null) o.bw *= f; if (o.bh != null) o.bh *= f; if (o.base != null) o.base *= f; o.size = ns; live(); } };
   $('#tBold', body).onclick = () => { ensureUndo(); o.bold = !o.bold; live(); };
   $('#tUnder', body).onclick = () => { ensureUndo(); o.underline = !o.underline; live(); };
   $('#tAlign', body).onclick = () => { ensureUndo(); o.align = { right: 'center', center: 'left', left: 'right' }[o.align] || 'right'; live(); };
+  // تقسيم الكلام على 1 / 2 / 3 / 4 سطور (كل ضغطة تزود سطر)
+  $('#tLines', body).onclick = () => {
+    ensureUndo();
+    const txt = (ta.value || '').replace(/[ \t]*\n[ \t]*/g, ' ').trim();
+    if (!txt) return;
+    const cur = textMetrics({ ...o, text: ta.value || ' ', bw: undefined, bh: undefined }).lines.length;
+    const N = cur >= 4 ? 1 : cur + 1;
+    ta.value = txt; if (!isNew) o.text = txt;
+    mctx.font = fontStr(o, o.size);
+    const W = t => mctx.measureText(t).width, total = W(txt), maxA = availW();
+    let ww = maxA;
+    if (N > 1) {
+      let lo = Math.max(...txt.split(/ +/).map(W), total / N) - 0.5, hi = total + 1;
+      for (let i = 0; i < 25; i++) { const mid = (lo + hi) / 2; if (wrapPara(txt, mid).length <= N) hi = mid; else lo = mid; }
+      ww = Math.min(hi + 0.5, maxA);
+    }
+    o.ww = ww;
+    if (!isNew) { if (o.bw != null) o.bw = textMetrics({ ...o, bw: undefined }).nw; if (o.bh != null && o.base == null) o.bh = textMetrics({ ...o, bh: undefined }).nh; }
+    live();
+  };
   ta.oninput = () => { if (!isNew) { ensureUndo(); o.text = ta.value; live(); } else posTA(); };
   let done = false;
   function commit() {
@@ -1782,7 +1838,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.28</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.29</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
