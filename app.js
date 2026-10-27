@@ -452,7 +452,22 @@ function renderOverlay(p) {
   annotsOf(p.id).forEach(o => ov.appendChild(makeObjEl(p, o)));
 }
 
+// أي نص لازم يفضل جوه الصفحة: يتلف على سطور لو أعرض منها، ويتزق لجوه لو طالع بره
+const EDGE = 3;
+function keepInPage(o, p) {
+  if (o.type !== 'text' || !p.w) return;
+  const pad = o.size * 0.06 * 2, maxIn = p.w - 2 * EDGE - pad;
+  if (o.text && o.text.trim()) {
+    if (!(o.ww > 0) || o.ww > maxIn) o.ww = Math.max(maxIn, 1);
+    if (o.bw != null && o.bw > p.w - 2 * EDGE) o.bw = p.w - 2 * EDGE;
+    fitBox(o);
+  } else if (o.bw != null && o.bw > p.w) o.bw = p.w;
+  const b = bbox(o);
+  if (b.w <= p.w) o.x = clamp(o.x, b.w <= p.w - 2 * EDGE ? EDGE : 0, Math.max(0, p.w - b.w - (b.w <= p.w - 2 * EDGE ? EDGE : 0)));
+  if (b.h <= p.h) o.y = clamp(o.y, 0, Math.max(0, p.h - b.h));
+}
 function makeObjEl(p, o) {
+  if (o.type === 'text' && S.editingId !== o.id) keepInPage(o, p);
   const s = scale(), b = bbox(o);
   const el = document.createElement('div');
   el.className = 'obj'; el.dataset.id = o.id;
@@ -464,8 +479,13 @@ function makeObjEl(p, o) {
   const isSel = S.sel && S.sel.oid === o.id;
   if (isSel) {
     el.classList.add('sel');
-    if (o.type !== 'note') { const h = document.createElement('div'); h.className = 'handle'; el.appendChild(h); bindResize(p, o, el, h); }
-    if (o.type === 'text' || o.type === 'hl' || (o.type === 'shape' && (o.kind === 'rect' || o.kind === 'ellipse')) || o.type === 'image') ['w', 'h'].forEach(ax => { const h = document.createElement('div'); h.className = 'handle edge-' + ax; el.appendChild(h); bindEdge(p, o, el, h, ax); });
+    if (o.type === 'text') {
+      // زي الآيفون: 4 دواير صغيرة في الأركان = عرض الصندوق (الكلام يتقسم سطور)، ودايرة تحت = تكبير/تصغير الكلام
+      ['tl', 'tr', 'bl', 'br'].forEach(c => { const h = document.createElement('div'); h.className = 'handle tc tc-' + c; el.appendChild(h); bindTextCorner(p, o, el, h, c); });
+      const st = document.createElement('div'); st.className = 'handle tstem'; st.title = 'تكبير / تصغير'; el.appendChild(st); bindTextScale(p, o, el, st);
+    }
+    else if (o.type !== 'note') { const h = document.createElement('div'); h.className = 'handle'; el.appendChild(h); bindResize(p, o, el, h); }
+    if ( o.type === 'hl' || (o.type === 'shape' && (o.kind === 'rect' || o.kind === 'ellipse')) || o.type === 'image') ['w', 'h'].forEach(ax => { const h = document.createElement('div'); h.className = 'handle edge-' + ax; el.appendChild(h); bindEdge(p, o, el, h, ax); });
   }
   bindObjDrag(p, o, el);
   return el;
@@ -585,6 +605,68 @@ function bindResize(p, o, el, h) {
       else if (o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow')) { o.w *= f; o.h *= nh / H0; }
       else { o.w = nw / s; o.h = nh / s; o.x = right - o.w; }
       renderOverlay(p);
+    };
+    h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+  });
+}
+
+// تحديث شكل العنصر أثناء السحب من غير ما نعيد رسم الصفحة كلها
+function refreshObjEl(o, el) {
+  const s = scale(), b = bbox(o);
+  Object.assign(el.style, { left: b.x * s + 'px', top: b.y * s + 'px', width: b.w * s + 'px', height: b.h * s + 'px' });
+  const c = el.querySelector('canvas'); if (c) c.replaceWith(objCanvas(o, s * DPR()));
+}
+// ركن صندوق النص: يغيّر العرض والكلام ينزل سطور (حجم الخط ثابت). مربع فاضي (مسافات): طول وعرض بحرية
+function bindTextCorner(p, o, el, h, c) {
+  h.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault(); h.setPointerCapture(e.pointerId);
+    const s = scale(), b = bbox(o), sx = e.clientX, sy = e.clientY;
+    const lft = c[1] === 'l', tp = c[0] === 't', L = b.x, R = b.x + b.w, T = b.y, B = b.y + b.h;
+    const isTxt = !!(o.text && o.text.trim()), pad = o.size * 0.06 * 2;
+    let moved = false;
+    const mv = ev => {
+      const dx = (ev.clientX - sx) / s, dy = (ev.clientY - sy) / s;
+      if (!moved) { if (Math.abs(dx) * s < 2 && Math.abs(dy) * s < 2) return; moved = true; pushUndo(); }
+      const maxW = lft ? R - EDGE : p.w - L - EDGE;
+      if (isTxt) {
+        const nw = clamp(lft ? b.w - dx : b.w + dx, o.size + pad, Math.max(o.size + pad, maxW));
+        o.ww = nw - pad; o.bw = nw; if (o.base == null) delete o.bh;
+        fitBox(o); o.x = lft ? R - bbox(o).w : L;
+      } else {
+        const nw = clamp(lft ? b.w - dx : b.w + dx, 2, Math.max(2, lft ? R : p.w - L));
+        const nh = clamp(tp ? b.h - dy : b.h + dy, 2, Math.max(2, tp ? B : p.h - T));
+        o.bw = nw; o.bh = nh; o.x = lft ? R - nw : L; o.y = tp ? B - nh : T;
+      }
+      refreshObjEl(o, el);
+    };
+    const up = () => {
+      h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+      if (moved) { renderOverlay(p); updateSelbar(); }
+    };
+    h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+  });
+}
+// الدايرة اللي تحت الصندوق: اسحب لتحت = الكلام يكبر، لفوق = يصغر (بنفس عدد السطور، ومايطلعش بره الصفحة)
+function bindTextScale(p, o, el, h) {
+  h.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault(); h.setPointerCapture(e.pointerId);
+    const s = scale(), sy = e.clientY, b0 = bbox(o);
+    const snap = JSON.stringify(o); let moved = false;
+    const mv = ev => {
+      const dy = ev.clientY - sy;
+      if (!moved) { if (Math.abs(dy) < 2) return; moved = true; pushUndo(); }
+      const base = JSON.parse(snap), H0 = b0.h * s;
+      const f = clamp((H0 + dy) / H0, 1 / base.size, 400 / base.size);
+      Object.assign(o, base); o.size = base.size * f;
+      ['ww', 'bw', 'bh', 'base'].forEach(k => { if (o[k] != null) o[k] *= f; });
+      fitBox(o); const nb = bbox(o);
+      o.x = o.align === 'left' ? b0.x : o.align === 'center' ? b0.x + b0.w / 2 - nb.w / 2 : b0.x + b0.w - nb.w; o.y = b0.y;
+      keepInPage(o, p);
+      refreshObjEl(o, el);
+    };
+    const up = () => {
+      h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+      if (moved) { renderOverlay(p); updateSelbar(); }
     };
     h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
   });
@@ -1040,7 +1122,6 @@ function openTextSheet(obj, p, x, y) {
   const box = document.createElement('div'); box.className = 'inline-box';
   p.el.querySelector('.overlay').appendChild(box);
   // أقصى عرض ينفع الكلام ياخده من غير ما يطلع بره الصفحة (حسب مكان الكتابة والمحاذاة)
-  const EDGE = 3;
   const availW = () => {
     const pad = o.size * 0.06 * 2;
     let al, L, R;
@@ -1056,7 +1137,7 @@ function openTextSheet(obj, p, x, y) {
     const m = textMetrics(tmp);
     const bw = isNew ? Math.max(m.nw, o.size * 0.8) : m.w, bh = m.h;
     let x = o.x;
-    if (isNew) { x = anchor.align === 'left' ? anchor.x : anchor.align === 'center' ? anchor.x - bw / 2 : anchor.x - bw; x = clamp(x, 0, Math.max(0, p.w - bw)); o.x = x; }
+    if (isNew) { x = anchor.align === 'left' ? anchor.x : anchor.align === 'center' ? anchor.x - bw / 2 : anchor.x - bw; x = clamp(x, 0, Math.max(0, p.w - bw)); o.x = x; if (o.y + bh > p.h) o.y = Math.max(0, p.h - bh); }
     Object.assign(box.style, { left: x * s + 'px', top: o.y * s + 'px', width: bw * s + 'px', height: bh * s + 'px', background: isNew ? (o.bg || 'rgba(30,136,229,.05)') : 'transparent' });
     // نحط سطر الكتابة بحيث خط الكتابة (baseline) ييجي في نفس مكانه في الصندوق
     const L = m.lh, base0 = o.base != null ? o.y + o.base : o.y + (bh - m.nh) / 2 + m.padY + m.asc;
@@ -1838,7 +1919,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.29</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.30</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }
