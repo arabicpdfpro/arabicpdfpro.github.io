@@ -1567,50 +1567,90 @@ function openHFSheet() {
   $('#hfDesign', body).onclick = () => hfDesigner(k);
   $('#hfImg', body).onclick = () => hfFromImage(k);
 }
-function applyHFDialog(src, k) {
+async function applyHFDialog(src, k) {
   if (!S.pdf || curScreen() !== 'editor') { toast('اتحفظ في المكتبة — افتح ملف عشان تضيفه'); closeSheet(true); return; }
   const nm = k === 'header' ? 'الهيدر' : 'الفوتر';
+  const img = await loadImg(src), ar = img.height / img.width;
+  const cur0 = S.hfPage || visiblePage();
   const body = openSheet(`
     <div class="sh-head"><h3>إضافة ${nm}</h3></div>
-    <div class="hf-prev"><div class="hf-page" id="hfPg"><img id="hfIm" src="${src}"></div></div>
-    <div class="row"><span class="k">الحجم</span><input type="range" id="hfSz" min="15" max="100" step="1" value="100" style="flex:1"><span id="hfSzV" style="min-width:40px">100%</span></div>
-    <div class="row"><span class="k">${k === 'header' ? 'ينزل لتحت' : 'يطلع لفوق'}</span><input type="range" id="hfOf" min="0" max="50" step="0.5" value="0" style="flex:1"><span id="hfOfV" style="min-width:40px">0%</span></div>
-    <div class="row"><span class="k">يمين/شمال</span><input type="range" id="hfX" dir="ltr" min="-100" max="100" step="1" value="0" style="flex:1"><span id="hfXV" style="min-width:40px">نص</span></div>
+    <div class="zm-wrap">
+      <div class="zm-col"><div class="sec-title">الصفحة كلها</div><div class="zm-page" id="hfPg"><div class="zm-frame" id="hfFr"></div></div></div>
+      <div class="zm-col"><div class="sec-title">المكان مكبّر</div><canvas id="hfCv" class="zm-cv"></canvas></div>
+    </div>
+    <div class="row"><span class="k">تكبير المكان</span><input type="range" id="hfZ" min="150" max="500" step="10" value="300" style="flex:1"><span id="hfZV" style="min-width:44px"></span></div>
+    <div class="row"><span class="k">العرض</span><input type="range" id="hfSz" min="15" max="200" step="1" value="100" style="flex:1"><span id="hfSzV" style="min-width:44px">100%</span></div>
+    <div class="row"><span class="k">الطول (ستريتش)</span><input type="range" id="hfHt" min="30" max="300" step="1" value="100" style="flex:1"><span id="hfHtV" style="min-width:44px">100%</span></div>
+    <div class="row"><span class="k">${k === 'header' ? 'فوق/تحت' : 'فوق/تحت'}</span><input type="range" id="hfOf" dir="ltr" min="-20" max="60" step="0.5" value="0" style="flex:1"><span id="hfOfV" style="min-width:44px">0%</span></div>
+    <div class="row"><span class="k">يمين/شمال</span><input type="range" id="hfX" dir="ltr" min="-100" max="100" step="1" value="0" style="flex:1"><span id="hfXV" style="min-width:44px">نص</span></div>
     <div class="menu-list" style="margin-top:6px">
       <label class="hfopt"><input type="radio" name="hfw" value="all" checked> كل الصفحات (${S.pages.length})</label>
       <label class="hfopt"><input type="radio" name="hfw" value="cur"> الصفحة دي بس</label>
       <label class="hfopt"><input type="radio" name="hfw" value="rest"> من الصفحة دي لآخر الملف</label>
-      <label class="hfopt"><input type="checkbox" id="hfCover" checked> غطّي ${nm} القديم اللي في الملف (مربع أبيض تحته)</label>
+      <label class="hfopt"><input type="checkbox" id="hfCover" checked> غطّي ${nm} القديم اللي في الملف (مربع أبيض من الحافة لحد الهيدر الجديد)</label>
       <label class="hfopt"><input type="checkbox" id="hfLock"> ثبّت ${nm} (ما يتحركش ولا يتمسحش)</label>
     </div>
     <div class="row"><button class="btn pri" id="hfGo" style="flex:1">إضافة</button></div>`);
-  const cur0 = S.hfPage || visiblePage();
   pageThumb(cur0, $('#hfPg', body));
-  let ar = 0.15; loadImg(src).then(im => { ar = im.height / im.width; pv(); });
-  const pv = () => {
-    const sz = +$('#hfSz', body).value, of = +$('#hfOf', body).value, hx = +$('#hfX', body).value, pg = $('#hfPg', body), im = $('#hfIm', body);
-    const pw = 170, ph = pw * cur0.h / cur0.w; pg.style.width = pw + 'px'; pg.style.height = ph + 'px';
-    const W = pw * sz / 100, H = W * ar, x = (pw - W) / 2 * (1 + hx / 100), y = k === 'header' ? ph * of / 100 : ph - H - ph * of / 100;
-    Object.assign(im.style, { width: W + 'px', left: x + 'px', top: y + 'px', bottom: '' });
-    $('#hfSzV', body).textContent = sz + '%'; $('#hfOfV', body).textContent = of + '%';
-    $('#hfXV', body).textContent = hx === 0 ? 'نص' : hx < 0 ? 'شمال' : 'يمين';
+  // الهندسة: الهيدر من أعلى الصفحة، والفوتر من أسفلها
+  const geo = p => {
+    const sz = +$('#hfSz', body).value, ht = +$('#hfHt', body).value, of = +$('#hfOf', body).value, hx = +$('#hfX', body).value;
+    const W = p.w * sz / 100, H = W * ar * ht / 100;
+    const x = (p.w - W) / 2 * (1 + hx / 100);
+    const y = k === 'header' ? p.h * of / 100 : p.h - H - p.h * of / 100;
+    return { W, H, x, y };
   };
-  ['#hfSz', '#hfOf', '#hfX'].forEach(id => $(id, body).oninput = pv); pv();
+  // الغطا: من الحافة لحد الهيدر/الفوتر الجديد (عشان يغطي القديم كله)
+  const coverRect = (p, g) => k === 'header' ? { x: 0, y: 0, w: p.w, h: g.y + g.H } : { x: 0, y: g.y, w: p.w, h: p.h - g.y };
+  let spTok = 0;
+  const drawSpot = async () => {
+    const tok = ++spTok, g = geo(cur0);
+    const z = +$('#hfZ', body).value / 100; $('#hfZV', body).textContent = z.toFixed(1) + '×';
+    const cv = $('#hfCv', body), outW = 420, viewW = cur0.w / z, viewH = viewW * cur0.h / cur0.w;
+    const cx = g.x + g.W / 2, cy = g.y + g.H / 2;
+    const x0 = clamp(cx - viewW / 2, 0, Math.max(0, cur0.w - viewW)), y0 = clamp(cy - viewH / 2, 0, Math.max(0, cur0.h - viewH));
+    const outH = Math.round(outW * viewH / viewW), ks = outW / viewW;
+    cv.width = outW; cv.height = outH;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, outW, outH);
+    const pc = cur0.el && cur0.el.querySelector('canvas.pdfc');
+    if (pc && pc.width) { const kx = pc.width / cur0.w, ky = pc.height / cur0.h; ctx.drawImage(pc, x0 * kx, y0 * ky, viewW * kx, viewH * ky, 0, 0, outW, outH); }
+    // الغطا الأبيض أول حاجة (زي ما بيتحط في الملف)
+    if ($('#hfCover', body).checked) { const r = coverRect(cur0, g); ctx.fillStyle = '#fff'; ctx.fillRect((r.x - x0) * ks, (r.y - y0) * ks, r.w * ks, r.h * ks); }
+    for (const ob of annotsOf(cur0.id)) {
+      if (tok !== spTok) return;
+      if (ob.type === 'image') { const im = await loadImg(S.assets[ob.asset]); if (tok !== spTok) return; ctx.drawImage(im, (ob.x - x0) * ks, (ob.y - y0) * ks, ob.w * ks, ob.h * ks); }
+      else { const bb = bbox(ob); const c = objCanvas(ob, ks); ctx.drawImage(c, (bb.x - x0) * ks, (bb.y - y0) * ks, bb.w * ks, bb.h * ks); }
+    }
+    if (tok !== spTok) return;
+    ctx.drawImage(img, (g.x - x0) * ks, (g.y - y0) * ks, g.W * ks, g.H * ks);
+    ctx.strokeStyle = '#e53935'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.strokeRect((g.x - x0) * ks, (g.y - y0) * ks, g.W * ks, g.H * ks);
+  };
+  const pv = () => {
+    const g = geo(cur0), pw = 150, ph = pw * cur0.h / cur0.w, pg = $('#hfPg', body), fr = $('#hfFr', body);
+    Object.assign(pg.style, { width: pw + 'px', height: ph + 'px', position: 'relative', overflow: 'hidden' });
+    Object.assign(fr.style, { left: g.x / cur0.w * 100 + '%', top: g.y / cur0.h * 100 + '%', width: g.W / cur0.w * 100 + '%', height: g.H / cur0.h * 100 + '%' });
+    $('#hfSzV', body).textContent = Math.round(+$('#hfSz', body).value) + '%';
+    $('#hfHtV', body).textContent = Math.round(+$('#hfHt', body).value) + '%';
+    $('#hfOfV', body).textContent = (+$('#hfOf', body).value) + '%';
+    const hx = +$('#hfX', body).value; $('#hfXV', body).textContent = hx === 0 ? 'نص' : hx < 0 ? 'شمال' : 'يمين';
+    drawSpot();
+  };
+  ['#hfZ', '#hfSz', '#hfHt', '#hfOf', '#hfX', '#hfCover'].forEach(id => { const el = $(id, body); el.oninput = pv; el.onchange = pv; });
+  pv();
   $('#hfGo', body).onclick = async () => {
     const w = $('input[name=hfw]:checked', body).value, cover = $('#hfCover', body).checked, lock = $('#hfLock', body).checked;
-    const sz = +$('#hfSz', body).value / 100, of = +$('#hfOf', body).value / 100, hx = +$('#hfX', body).value / 100;
+    const sz = +$('#hfSz', body).value / 100, ht = +$('#hfHt', body).value / 100, of = +$('#hfOf', body).value / 100, hx = +$('#hfX', body).value / 100;
     closeSheet(true);
     const cur = S.hfPage || visiblePage(); S.hfPage = null;
     const pages = w === 'all' ? S.pages : w === 'rest' ? S.pages.slice(cur.index) : [cur];
-    const img = await loadImg(src); const aid = uid(); S.assets[aid] = src;
+    const aid = uid(); S.assets[aid] = src;
     pushUndo();
     let last = null;
     pages.forEach(p => {
-      const W = p.w * sz, H = W * img.height / img.width, x = (p.w - W) / 2 * (1 + hx), oy = p.h * of, y = k === 'header' ? oy : p.h - H - oy;
+      const W = p.w * sz, H = W * img.height / img.width * ht, x = (p.w - W) / 2 * (1 + hx), oy = p.h * of, y = k === 'header' ? oy : p.h - H - oy;
       if (cover) {
-        // في مكانه الطبيعي: يغطي من حافة الصفحة لحد آخره. لو اتحرك: يغطي تحته بس
-        const atEdge = of < 0.02 && Math.abs(hx) < 0.01;
-        const r = atEdge ? { x: 0, y: k === 'header' ? 0 : y, w: p.w, h: k === 'header' ? y + H : p.h - y } : { x, y, w: W, h: H };
+        const r = k === 'header' ? { x: 0, y: 0, w: p.w, h: y + H } : { x: 0, y: y, w: p.w, h: p.h - y };
         annotsOf(p.id).unshift({ type: 'shape', kind: 'rect', id: uid(), ...r, color: null, width: 0, fill: '#ffffff' });
       }
       last = { type: 'image', id: uid(), asset: aid, x, y, w: W, h: H, opacity: 1, kind: k, locked: lock };
