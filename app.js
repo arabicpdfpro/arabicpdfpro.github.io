@@ -1642,7 +1642,11 @@ async function placeStampDialog(src, opts = {}) {
   const cur0 = visiblePage();
   const body = openSheet(`
     <div class="sh-head"><h3>${kind === 'sig' ? 'مكان التوقيع' : 'مكان الختم'}</h3></div>
-    <div class="hf-prev"><div class="hf-page" id="spPg"><img id="spIm" src="${src}"></div></div>
+    <div class="zm-wrap">
+      <div class="zm-col"><div class="sec-title">الصفحة كلها</div><div class="zm-page" id="spPg"><div class="zm-frame" id="spFr"></div></div></div>
+      <div class="zm-col"><div class="sec-title">المكان مكبّر</div><canvas id="spCv" class="zm-cv"></canvas></div>
+    </div>
+    <div class="row"><span class="k">تكبير المكان</span><input type="range" id="spZ" min="150" max="500" step="10" value="300" style="flex:1"><span id="spZV" style="min-width:44px"></span></div>
     <div class="row"><span class="k">الحجم</span><input type="range" id="spSz" min="5" max="70" step="0.5" style="flex:1"><span id="spSzV" style="min-width:40px"></span></div>
     <div class="row"><span class="k">يمين/شمال</span><input type="range" id="spX" dir="ltr" min="0" max="100" step="0.5" style="flex:1"></div>
     <div class="row"><span class="k">فوق/تحت</span><input type="range" id="spY" dir="ltr" min="0" max="100" step="0.5" style="flex:1"></div>
@@ -1659,14 +1663,37 @@ async function placeStampDialog(src, opts = {}) {
     const W = p.w * +$('#spSz', body).value / 100, H = W * ar;
     return { W, H, x: (p.w - W) * +$('#spX', body).value / 100, y: Math.max(0, p.h - H) * +$('#spY', body).value / 100 };
   };
-  const pv = () => {
-    const pw = 170, ph = pw * cur0.h / cur0.w, pg = $('#spPg', body), im = $('#spIm', body);
-    pg.style.width = pw + 'px'; pg.style.height = ph + 'px';
-    const g = geo(cur0), k = pw / cur0.w;
-    Object.assign(im.style, { width: g.W * k + 'px', left: g.x * k + 'px', top: g.y * k + 'px' });
-    $('#spSzV', body).textContent = Math.round(+$('#spSz', body).value) + '%';
+  // معاينة مكبّرة للمكان نفسه (الصفحة الحالية بدقة عالية + الكلام/الأختام اللي فيها + الختم الجديد)
+  let spTok = 0;
+  const drawSpot = async () => {
+    const tok = ++spTok, g = geo(cur0);
+    const z = +$('#spZ', body).value / 100; $('#spZV', body).textContent = z.toFixed(1) + '×';
+    const cv = $('#spCv', body), outW = 420, viewW = cur0.w / z, viewH = viewW * cur0.h / cur0.w;
+    const cx = g.x + g.W / 2, cy = g.y + g.H / 2;
+    const x0 = clamp(cx - viewW / 2, 0, Math.max(0, cur0.w - viewW)), y0 = clamp(cy - viewH / 2, 0, Math.max(0, cur0.h - viewH));
+    const outH = Math.round(outW * viewH / viewW), ks = outW / viewW;
+    cv.width = outW; cv.height = outH;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, outW, outH);
+    const pc = cur0.el && cur0.el.querySelector('canvas.pdfc');
+    if (pc && pc.width) { const kx = pc.width / cur0.w, ky = pc.height / cur0.h; ctx.drawImage(pc, x0 * kx, y0 * ky, viewW * kx, viewH * ky, 0, 0, outW, outH); }
+    for (const ob of annotsOf(cur0.id)) {
+      if (tok !== spTok) return;
+      if (ob.type === 'image') { const im = await loadImg(S.assets[ob.asset]); if (tok !== spTok) return; ctx.drawImage(im, (ob.x - x0) * ks, (ob.y - y0) * ks, ob.w * ks, ob.h * ks); }
+      else { const bb = bbox(ob); const c = objCanvas(ob, ks); ctx.drawImage(c, (bb.x - x0) * ks, (bb.y - y0) * ks, bb.w * ks, bb.h * ks); }
+    }
+    if (tok !== spTok) return;
+    ctx.drawImage(img, (g.x - x0) * ks, (g.y - y0) * ks, g.W * ks, g.H * ks);
+    ctx.strokeStyle = '#e53935'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.strokeRect((g.x - x0) * ks, (g.y - y0) * ks, g.W * ks, g.H * ks);
   };
-  ['#spSz', '#spX', '#spY'].forEach(id => $(id, body).oninput = pv); pv();
+  const pv = () => {
+    const g = geo(cur0), pw = 150, ph = pw * cur0.h / cur0.w, pg = $('#spPg', body), fr = $('#spFr', body);
+    Object.assign(pg.style, { width: pw + 'px', height: ph + 'px', position: 'relative' });
+    Object.assign(fr.style, { left: g.x / cur0.w * 100 + '%', top: g.y / cur0.h * 100 + '%', width: g.W / cur0.w * 100 + '%', height: g.H / cur0.h * 100 + '%' });
+    $('#spSzV', body).textContent = Math.round(+$('#spSz', body).value) + '%';
+    drawSpot();
+  };
+  ['#spZ', '#spSz', '#spX', '#spY'].forEach(id => $(id, body).oninput = pv); pv();
   $('#spGo', body).onclick = () => {
     const where = $('input[name=spw]:checked', body).value;
     Object.assign(STP, { w: +$('#spSz', body).value / 100, hx: +$('#spX', body).value / 100, vy: +$('#spY', body).value / 100, where });
@@ -1682,7 +1709,6 @@ async function placeStampDialog(src, opts = {}) {
     });
     setTool('select');
     if (sel) select(cur0.id, sel.id);
-    if (sel) setTimeout(() => openZoomSheet(cur0, sel), 350);   // بعد الإضافة: زوم على المكان اللي اتحط فيه
     if (pages.length > 1) toast(`اتحط على ${pages.length} صفحة`);
   };
 }
@@ -2113,7 +2139,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.32</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.33</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }

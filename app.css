@@ -311,6 +311,7 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 .hf-page img{position:absolute;display:block}
 .zm-wrap{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:8px}
 .zm-col{flex:1 1 150px;min-width:0}
+.zm-wrap .zm-col:last-child{flex:2 1 220px}
 .zm-page{background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.2);background-size:100% 100%;background-repeat:no-repeat}
 .zm-frame{position:absolute;border:2px solid #e53935;background:rgba(229,57,53,.12);pointer-events:none}
 .zm-cv{width:100%;height:auto;display:block;background:#fff;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.2)}
