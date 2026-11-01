@@ -36,6 +36,9 @@ const ICONS = {
   share: '<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7h14v-7"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  zoom: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.6-4.6M11 8v6M8 11h6"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 017.6-1.7"/>',
   rotate: '<path d="M20 12a8 8 0 11-2.3-5.7"/><path d="M20 4v5h-5"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/>',
   goto: '<path d="M5 12h12"/><path d="M13 7l5 5-5 5"/><path d="M4 4v16"/>',
@@ -555,8 +558,8 @@ function makeObjEl(p, o) {
       ['tl', 'tr', 'bl', 'br'].forEach(c => { const h = document.createElement('div'); h.className = 'handle tc tc-' + c; el.appendChild(h); bindTextCorner(p, o, el, h, c); });
       const st = document.createElement('div'); st.className = 'handle tstem'; st.title = 'تكبير / تصغير'; el.appendChild(st); bindTextScale(p, o, el, st);
     }
-    else if (o.type !== 'note') { const h = document.createElement('div'); h.className = 'handle'; el.appendChild(h); bindResize(p, o, el, h); }
-    if ( o.type === 'hl' || (o.type === 'shape' && (o.kind === 'rect' || o.kind === 'ellipse')) || o.type === 'image') ['w', 'h'].forEach(ax => { const h = document.createElement('div'); h.className = 'handle edge-' + ax; el.appendChild(h); bindEdge(p, o, el, h, ax); });
+    else if (o.type !== 'note' && !o.locked) { const h = document.createElement('div'); h.className = 'handle'; el.appendChild(h); bindResize(p, o, el, h); }
+    if ( !o.locked && (o.type === 'hl' || (o.type === 'shape' && (o.kind === 'rect' || o.kind === 'ellipse')) || o.type === 'image')) ['w', 'h'].forEach(ax => { const h = document.createElement('div'); h.className = 'handle edge-' + ax; el.appendChild(h); bindEdge(p, o, el, h, ax); });
   }
   bindObjDrag(p, o, el);
   return el;
@@ -593,12 +596,19 @@ function updateSelbar() {
   btns.push(['front', 'للأمام', () => reorderSel(1)]);
   if (o.type === 'image') btns.push(['stamp', 'حفظ', () => { Lib.add('sig', S.assets[o.asset]); toast('تم الحفظ في المكتبة'); }]);
   if (S.pages.length > 1 && o.type !== 'text') btns.push(['copy', 'كل الصفحات', copyToAllPages]);
-  btns.push(['trash', 'حذف', deleteSel, 'danger']);
+  if (o.type === 'image' && (o.kind === 'header' || o.kind === 'footer')) btns.push([o.locked ? 'unlock' : 'lock', o.locked ? 'فك التثبيت' : 'تثبيت', toggleLock]);
+  btns.push(['zoom', 'زوم', () => openZoomSheet(selPage(), o)]);
+  if (!o.locked) btns.push(['trash', 'حذف', deleteSel, 'danger']);
   bar.innerHTML = '';
   btns.forEach(([ic, t, fn, cls]) => { const b = document.createElement('button'); b.innerHTML = icon(ic) + t; if (cls) b.className = cls; b.onclick = fn; bar.appendChild(b); });
   bar.classList.remove('hidden');
 }
-function deleteSel() { const o = selObj(); if (!o) return; pushUndo(); const arr = annotsOf(S.sel.pid); arr.splice(arr.indexOf(o), 1); const p = selPage(); S.sel = null; renderOverlay(p); updateSelbar(); }
+function toggleLock() {
+  const o = selObj(); if (!o) return; pushUndo();
+  o.locked = !o.locked; renderOverlay(selPage()); updateSelbar();
+  toast(o.locked ? 'اتثبّت — مش هيتحرك ولا يتمسح' : 'اتفك التثبيت');
+}
+function deleteSel() { const o = selObj(); if (!o) return; if (o.locked) { toast('العنصر ده مثبّت — افكّ التثبيت الأول'); return; } pushUndo(); const arr = annotsOf(S.sel.pid); arr.splice(arr.indexOf(o), 1); const p = selPage(); S.sel = null; renderOverlay(p); updateSelbar(); }
 function duplicateSel() {
   const o = selObj(); if (!o) return; pushUndo();
   const c = JSON.parse(JSON.stringify(o)); c.id = uid(); moveObj(c, 12, 12);
@@ -615,6 +625,7 @@ function bindObjDrag(p, o, el) {
   el.addEventListener('pointerdown', e => {
     if (S.tool === 'eraser') { if (o.type === 'ink') { e.stopPropagation(); } return; }
     if (!['select', 'text'].includes(S.tool)) return;
+    if (o.locked) { e.stopPropagation(); select(p.id, o.id); return; }   // المثبّت (الهيدر/الفوتر) ما يتحركش
     if (e.target.classList.contains('handle')) return;
     e.stopPropagation(); e.preventDefault();
     const s = scale(), sx = e.clientX, sy = e.clientY, l0 = parseFloat(el.style.left), t0 = parseFloat(el.style.top);
@@ -1570,6 +1581,7 @@ function applyHFDialog(src, k) {
       <label class="hfopt"><input type="radio" name="hfw" value="cur"> الصفحة دي بس</label>
       <label class="hfopt"><input type="radio" name="hfw" value="rest"> من الصفحة دي لآخر الملف</label>
       <label class="hfopt"><input type="checkbox" id="hfCover" checked> غطّي ${nm} القديم اللي في الملف (مربع أبيض تحته)</label>
+      <label class="hfopt"><input type="checkbox" id="hfLock"> ثبّت ${nm} (ما يتحركش ولا يتمسحش)</label>
     </div>
     <div class="row"><button class="btn pri" id="hfGo" style="flex:1">إضافة</button></div>`);
   const cur0 = S.hfPage || visiblePage();
@@ -1585,7 +1597,7 @@ function applyHFDialog(src, k) {
   };
   ['#hfSz', '#hfOf', '#hfX'].forEach(id => $(id, body).oninput = pv); pv();
   $('#hfGo', body).onclick = async () => {
-    const w = $('input[name=hfw]:checked', body).value, cover = $('#hfCover', body).checked;
+    const w = $('input[name=hfw]:checked', body).value, cover = $('#hfCover', body).checked, lock = $('#hfLock', body).checked;
     const sz = +$('#hfSz', body).value / 100, of = +$('#hfOf', body).value / 100, hx = +$('#hfX', body).value / 100;
     closeSheet(true);
     const cur = S.hfPage || visiblePage(); S.hfPage = null;
@@ -1601,7 +1613,7 @@ function applyHFDialog(src, k) {
         const r = atEdge ? { x: 0, y: k === 'header' ? 0 : y, w: p.w, h: k === 'header' ? y + H : p.h - y } : { x, y, w: W, h: H };
         annotsOf(p.id).unshift({ type: 'shape', kind: 'rect', id: uid(), ...r, color: null, width: 0, fill: '#ffffff' });
       }
-      last = { type: 'image', id: uid(), asset: aid, x, y, w: W, h: H, opacity: 1, kind: k };
+      last = { type: 'image', id: uid(), asset: aid, x, y, w: W, h: H, opacity: 1, kind: k, locked: lock };
       annotsOf(p.id).push(last);
       renderOverlay(p);
     });
@@ -1670,8 +1682,46 @@ async function placeStampDialog(src, opts = {}) {
     });
     setTool('select');
     if (sel) select(cur0.id, sel.id);
+    if (sel) setTimeout(() => openZoomSheet(cur0, sel), 350);   // بعد الإضافة: زوم على المكان اللي اتحط فيه
     if (pages.length > 1) toast(`اتحط على ${pages.length} صفحة`);
   };
+}
+/* ---------- زوم: الصفحة كاملة جنبها المكان مكبّر (المكان المحدد بإطار أحمر) ---------- */
+let zmTok = 0;
+function openZoomSheet(p, o) {
+  if (!p || !o) return;
+  const body = openSheet(`
+    <div class="sh-head"><h3>زوم على المكان</h3></div>
+    <div class="row"><span class="k">التكبير</span><input type="range" id="zmL" min="150" max="500" step="10" value="250" style="flex:1"><span id="zmLV" style="min-width:44px">2.5×</span></div>
+    <div class="zm-wrap">
+      <div class="zm-col"><div class="sec-title">الصفحة كلها</div><div class="zm-page" id="zmPg"><div class="zm-frame" id="zmFr"></div></div></div>
+      <div class="zm-col"><div class="sec-title">المكان مكبّر</div><canvas id="zmCv" class="zm-cv"></canvas></div>
+    </div>`);
+  const pv = async () => {
+    const z = +$('#zmL', body).value / 100; $('#zmLV', body).textContent = z.toFixed(1) + '×';
+    const pw = 150, ph = pw * p.h / p.w, pg = $('#zmPg', body), fr = $('#zmFr', body);
+    Object.assign(pg.style, { width: pw + 'px', height: ph + 'px', position: 'relative' });
+    const b = bbox(o);
+    Object.assign(fr.style, { left: b.x / p.w * 100 + '%', top: b.y / p.h * 100 + '%', width: b.w / p.w * 100 + '%', height: b.h / p.h * 100 + '%' });
+    const tok = ++zmTok;
+    const cv = $('#zmCv', body), outW = 420, viewW = p.w / z, viewH = viewW * p.h / p.w;
+    const x0 = clamp(b.x + b.w / 2 - viewW / 2, 0, Math.max(0, p.w - viewW)), y0 = clamp(b.y + b.h / 2 - viewH / 2, 0, Math.max(0, p.h - viewH));
+    const outH = Math.round(outW * viewH / viewW), ks = outW / viewW;
+    cv.width = outW; cv.height = outH;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, outW, outH);
+    const src = p.el && p.el.querySelector('canvas.pdfc');
+    if (src && src.width) { const kx = src.width / p.w, ky = src.height / p.h; ctx.drawImage(src, x0 * kx, y0 * ky, viewW * kx, viewH * ky, 0, 0, outW, outH); }
+    for (const ob of annotsOf(p.id)) {
+      if (tok !== zmTok) return;
+      const bb = bbox(ob);
+      if (ob.type === 'image') { const im = await loadImg(S.assets[ob.asset]); if (tok !== zmTok) return; ctx.drawImage(im, (ob.x - x0) * ks, (ob.y - y0) * ks, ob.w * ks, ob.h * ks); }
+      else { const c = objCanvas(ob, ks); ctx.drawImage(c, (bb.x - x0) * ks, (bb.y - y0) * ks, bb.w * ks, bb.h * ks); }
+    }
+    ctx.strokeStyle = '#e53935'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.strokeRect((b.x - x0) * ks, (b.y - y0) * ks, b.w * ks, b.h * ks);
+  };
+  pageThumb(p, $('#zmPg', body));
+  $('#zmL', body).oninput = pv; pv();
 }
 // كرر العنصر المحدد بنفس مكانه على كل الصفحات
 function copyToAllPages() {
@@ -2063,7 +2113,7 @@ async function openInfo() {
 function openAbout() {
   openSheet(`<div class="about" dir="ltr">
     <div class="logo"><svg viewBox="0 0 48 48"><rect x="10" y="6" width="28" height="36" rx="3" fill="#fff"/><path d="M30 6h8v8z" fill="#9fc0c0"/><rect x="15" y="15" width="18" height="2.4" rx="1.2" fill="#9fb3b3"/><rect x="15" y="21" width="14" height="2.4" rx="1.2" fill="#9fb3b3"/><path d="M24 38l12-12 3 3-12 12-4 1z" fill="#e88c28"/></svg></div>
-    <h2>Arabic PDF Pro</h2><p>Version 0.31</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
+    <h2>Arabic PDF Pro</h2><p>Version 0.32</p><p dir="rtl">تعديل ملفات PDF بالعربي والإنجليزي</p>
     <p class="by">Created by <b>MOHENDI</b></p><button class="contact-btn" id="abContact">✉ تواصل مع المطور</button></div>`);
   $('#abContact').onclick = () => openContact();
 }

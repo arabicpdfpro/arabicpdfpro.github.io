@@ -309,6 +309,11 @@ textarea.field{min-height:96px;resize:vertical;font-size:18px;line-height:1.6}
 .hf-prev{display:grid;place-items:center;background:#e9eeee;border-radius:12px;padding:10px}
 .hf-page{position:relative;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.2);overflow:hidden}
 .hf-page img{position:absolute;display:block}
+.zm-wrap{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:8px}
+.zm-col{flex:1 1 150px;min-width:0}
+.zm-page{background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.2);background-size:100% 100%;background-repeat:no-repeat}
+.zm-frame{position:absolute;border:2px solid #e53935;background:rgba(229,57,53,.12);pointer-events:none}
+.zm-cv{width:100%;height:auto;display:block;background:#fff;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.2)}
 
 .inline-box{position:absolute;z-index:3;border:1.2px dashed var(--sel);box-sizing:border-box;pointer-events:none;border-radius:2px}
 .obj.editing .handle,.obj.editing{outline:none!important;box-shadow:none!important}.obj.editing .handle{display:none}
