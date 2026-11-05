@@ -233,8 +233,9 @@
     const ad = document.getElementById('licAdmin'); if (ad) ad.onclick = () => { if (/github\.io$/.test(location.hostname)) location.href = 'admin.html'; else window.open('https://arabicpdfpro.github.io/admin.html', '_blank'); };
     const foot = document.querySelector('.home-foot'); let acc = document.querySelector('.lic-acc');
     if (!acc) { acc = document.createElement('div'); acc.className = 'lic-acc'; foot.appendChild(acc); }
-    acc.innerHTML = `${LIC.user.email}<button id="licOut">خروج</button>`;
+    acc.innerHTML = `${LIC.user.email}<button id="licOut">خروج</button><button id="licDel">حذف الحساب</button>`;
     document.getElementById('licOut').onclick = () => { if (confirm('تسجيل خروج من الحساب؟')) auth.signOut(); };
+    document.getElementById('licDel').onclick = () => deleteAccountSheet();
   }
 
   /* ---------- كود التفعيل ---------- */
@@ -269,6 +270,50 @@
     setTimeout(() => $('#acCode', body).focus(), 250);
   }
   LIC.activate = activateSheet;
+
+  /* ---------- حذف الحساب ---------- */
+  // بيمسح بيانات المستخدم من Firestore، وبعدين الحساب من Firebase Auth. الترتيب ده مهم: الحساب بيتمسح في الآخر.
+  // البصمة (fps) مش بتتمسح، بس بيتشال منها الـ uid، عشان الفترة التجريبية متتاخدش تاني على نفس الجهاز.
+  async function deleteUserData(u) {
+    const q = async col => (await withTimeout(db.collection(col).where('uid', '==', u.uid).get(), 20000)).docs;
+    const run = async (docs, fn) => { for (let i = 0; i < docs.length; i += 400) { const b = db.batch(); docs.slice(i, i + 400).forEach(d => fn(b, d)); await withTimeout(b.commit(), 20000); } };
+    await run(await q('devices'), (b, d) => b.delete(d.ref));
+    await run(await q('fps'), (b, d) => b.update(d.ref, { uid: 'deleted' }));
+    await run(await q('fontRequests'), (b, d) => b.delete(d.ref));
+    await run(await q('codes'), (b, d) => b.update(d.ref, { uid: 'deleted', usedEmail: firebase.firestore.FieldValue.delete() }));
+    await withTimeout(db.collection('users').doc(u.uid).delete(), 20000);
+  }
+
+  function deleteAccountSheet() {
+    const u = auth.currentUser; if (!u) return;
+    if (u.email === ADMIN) return toast('حساب المطور مايتحذفش من هنا');
+    const body = openSheet(`<div class="sh-head"><h3>حذف الحساب</h3></div>
+      <p style="font-size:14px;color:var(--muted);margin:0 0 8px;line-height:1.8">هيتمسح حسابك ومعاه الأجهزة المرتبطة بيه، وطلبات الخطوط اللي رفعتها. الحذف نهائي ومفيش رجوع فيه. الملفات اللي على جهازك مش بتتأثر.</p>
+      <input class="field" id="daPw" type="password" dir="ltr" placeholder="كلمة السر" autocomplete="current-password">
+      <input class="field" id="daTxt" placeholder='اكتب "حذف" للتأكيد' style="margin-top:8px">
+      <div class="row"><button class="btn pri" id="daGo" style="flex:1;background:#c0392b">حذف الحساب نهائياً</button></div>
+      <div id="daMsg" style="text-align:center;font-size:13.5px;min-height:20px;color:#c0392b"></div>`);
+    const m = t => { $('#daMsg', body).textContent = t; };
+    $('#daGo', body).onclick = async () => {
+      const pw = $('#daPw', body).value, txt = $('#daTxt', body).value.trim();
+      if (txt !== 'حذف') return m('اكتب كلمة "حذف" بالظبط عشان تأكد');
+      if (!pw) return m('اكتب كلمة السر عشان نتأكد إن الحساب ده بتاعك');
+      const b = $('#daGo', body); b.disabled = true; b.textContent = 'بنحذف…'; m('');
+      try {
+        await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, pw));
+        await deleteUserData(u);
+        ls.del('apdf_lic'); ls.del('apdf_email');
+        closeSheet(true);
+        await u.delete();   // onAuthStateChanged هيرجّع شاشة الدخول
+      } catch (e) {
+        b.disabled = false; b.textContent = 'حذف الحساب نهائياً';
+        if (e && e.code === 'auth/wrong-password') return m('كلمة السر غلط');
+        if (e && e.code === 'auth/invalid-credential') return m('كلمة السر غلط');
+        m(errText(e) + ' — الحساب لسه موجود، جرب تاني');
+      }
+    };
+    setTimeout(() => $('#daPw', body).focus(), 250);
+  }
 
   /* ---------- البداية ---------- */
   show(`<div class="big">⏳</div><p>لحظة…</p>`);
