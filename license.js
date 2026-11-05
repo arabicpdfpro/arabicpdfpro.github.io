@@ -279,7 +279,10 @@
     const run = async (docs, fn) => { for (let i = 0; i < docs.length; i += 400) { const b = db.batch(); docs.slice(i, i + 400).forEach(d => fn(b, d)); await withTimeout(b.commit(), 20000); } };
     await run(await q('devices'), (b, d) => b.delete(d.ref));
     await run(await q('fps'), (b, d) => b.update(d.ref, { uid: 'deleted' }));
-    await run(await q('fontRequests'), (b, d) => b.delete(d.ref));
+    // طلبات الخطوط: بنمسح الأجزاء الأول (ID كل جزء رقمه 0..n-1 حسب حقل parts)، وبعدين الطلب نفسه
+    const frs = await q('fontRequests');
+    for (const d of frs) { const n = d.data().parts || 0; const pr = []; for (let k = 0; k < n; k++) pr.push(d.ref.collection('parts').doc(String(k))); await run(pr, (b, r) => b.delete(r)); }
+    await run(frs, (b, d) => b.delete(d.ref));
     await run(await q('codes'), (b, d) => b.update(d.ref, { uid: 'deleted', usedEmail: firebase.firestore.FieldValue.delete() }));
     await withTimeout(db.collection('users').doc(u.uid).delete(), 20000);
   }
