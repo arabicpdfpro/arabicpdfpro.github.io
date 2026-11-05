@@ -74,7 +74,7 @@ const S = {
   pen: { color: '#1f3a93', width: 2.5, opacity: 1 },
   hl: { color: '#ffeb3b' },
   shape: { kind: 'rect', color: '#c0392b', width: 2, fill: null },
-  text: { font: 'Sub TNR', size: 16, color: '#000000', bg: null, align: 'right', bold: false, opacity: 1 },
+  text: { font: 'Sub TNR', size: 32, color: '#000000', bg: null, align: 'right', bold: false, opacity: 1 },
   textCache: {}, search: { results: [], i: -1, q: '' },
 };
 
