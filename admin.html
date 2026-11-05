@@ -96,7 +96,7 @@
       <div class="gen">
         <label>عدد</label><input id="gN" type="number" value="5" min="1" max="100" style="width:70px">
         <label>المدة</label>
-        <select id="gD"><option value="30">شهر</option><option value="90">3 شهور</option><option value="180">6 شهور</option><option value="365" selected>سنة</option><option value="36500">مدى الحياة</option></select>
+        <select id="gD"><option value="30">شهر</option><option value="90">3 شهور</option><option value="180">6 شهور</option><option value="365">سنة</option><option value="36500" selected>مدى الحياة</option></select>
         <label>لإيميل معيّن (اختياري)</label><input id="gE" type="email" dir="ltr" placeholder="أي حد" style="flex:1;min-width:160px">
         <button class="btn pri" id="gGo">ولّد أكواد</button>
       </div>
@@ -180,7 +180,7 @@ function renderUsers() {
 }
 $('#q').oninput = renderUsers;
 function askDays(t) {
-  const v = prompt(t + '\nاكتب عدد الأيام (مثلاً 30 أو 365)، أو 0 = مدى الحياة', '365');
+  const v = prompt(t + '\nاكتب عدد الأيام (مثلاً 30 أو 365)، أو 0 = مدى الحياة (الافتراضي)', '0');
   if (v === null) return null; const n = parseInt(v, 10); return isNaN(n) || n < 0 ? null : n;
 }
 async function userAction(id, a) {
